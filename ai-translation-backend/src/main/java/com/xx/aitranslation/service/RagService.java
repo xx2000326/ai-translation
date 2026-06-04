@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * RAG 记忆服务：基于 PGVector 存储与检索历史翻译，增强一致性与上下文能力。
@@ -31,6 +32,8 @@ public class RagService {
 
     /** 相似翻译检索 TopK */
     private static final int TOP_K = 3;
+    /** DashScope text-embedding 单批上限 */
+    private static final int EMBEDDING_BATCH_SIZE = 10;
     /** 相似度阈值，过滤掉相关性过低的记忆 */
     private static final double SIMILARITY_THRESHOLD = 0.5;
 
@@ -94,12 +97,21 @@ public class RagService {
         if (documents.isEmpty()) {
             return;
         }
-        try {
-            vectorStore.add(documents);
-            log.info("已将 {} 个翻译段落写入 RAG 记忆库", documents.size());
-        } catch (Exception e) {
-            log.warn("批量写入翻译记忆失败: {}", e.getMessage());
+        // DashScope text-embedding 单批上限为 10，分批写入避免 400 错误
+        List<List<Document>> batches = IntStream.range(0, (documents.size() + EMBEDDING_BATCH_SIZE - 1) / EMBEDDING_BATCH_SIZE)
+                .mapToObj(i -> documents.subList(i * EMBEDDING_BATCH_SIZE,
+                        Math.min((i + 1) * EMBEDDING_BATCH_SIZE, documents.size())))
+                .collect(Collectors.toList());
+        int saved = 0;
+        for (List<Document> batch : batches) {
+            try {
+                vectorStore.add(batch);
+                saved += batch.size();
+            } catch (Exception e) {
+                log.warn("批量写入翻译记忆失败（第 {}/{} 批）", batches.indexOf(batch) + 1, batches.size(), e);
+            }
         }
+        log.info("已将 {}/{} 个翻译段落写入 RAG 记忆库", saved, documents.size());
     }
 
     /**

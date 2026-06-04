@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS translation_memory (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     content TEXT,                 -- 原文/翻译内容
     metadata JSONB,               -- 业务元数据（role / style 等）
-    embedding VECTOR(1536)        -- 内容向量（与 embedding 模型维度一致）
+    embedding VECTOR(1024)        -- 内容向量（text-embedding-v3 默认维度 1024）
 );
 
 CREATE INDEX IF NOT EXISTS translation_memory_embedding_idx
