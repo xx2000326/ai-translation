@@ -1,0 +1,121 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  color: #fff;
+}
+
+.app-logo .logo-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.app-logo .logo-text {
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.content-wrap {
+  margin: 24px;
+  padding: 24px;
+  background: #fff;
+  border-radius: 10px;
+  min-height: calc(100vh - 48px);
+}
+
+.page-header {
+  margin-bottom: 20px;
+}
+
+.translate-result {
+  min-height: 260px;
+  white-space: pre-wrap;
+  line-height: 1.7;
+  padding: 11px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fafafa;
+  font-size: 14px;
+}
+
+.translate-result.placeholder {
+  color: #bfbfbf;
+}
+
+.history-original {
+  margin: 6px 0;
+}
+
+.history-translated {
+  color: #4f46e5;
+}
+
+/* 工作流：分段编辑列表 */
+.seg-block {
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: #fafafa;
+}
+
+.seg-meta {
+  margin-bottom: 8px;
+}
+
+/* 工作流：人工审校左右对照 */
+.review-header {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.review-pane {
+  max-height: 60vh;
+  overflow: auto;
+  position: relative;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.review-seg {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.review-seg .seg-original {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.seg-highlight {
+  background: #fffbe6;
+  transition: background 0.2s;
+}
