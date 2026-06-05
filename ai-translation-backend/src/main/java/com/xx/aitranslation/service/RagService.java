@@ -1,6 +1,6 @@
 package com.xx.aitranslation.service;
 
-import com.xx.aitranslation.entity.TranslationSegment;
+import com.xx.aitranslation.entity.TranslationSentence;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -77,17 +77,23 @@ public class RagService {
      * @param style      翻译风格
      */
     @Async("taskExecutor")
-    public void saveTranslationMemoriesAsync(List<TranslationSegment> segments,
+    public void saveTranslationMemoriesAsync(List<TranslationSentence> sentences,
                                              Long customerId, String role, String style) {
-        if (ObjectUtils.isEmpty(segments)) {
+        if (ObjectUtils.isEmpty(sentences)) {
             return;
         }
         List<Document> documents = new ArrayList<>();
-        for (TranslationSegment seg : segments) {
-            if (ObjectUtils.isEmpty(seg.getOriginalText()) || ObjectUtils.isEmpty(seg.getFinalText())) {
+        for (TranslationSentence sent : sentences) {
+            String finalText = sent.getFinalText();
+            if (ObjectUtils.isEmpty(finalText)) {
+                finalText = ObjectUtils.isEmpty(sent.getReviewedText())
+                        ? sent.getTranslatedText()
+                        : sent.getReviewedText();
+            }
+            if (ObjectUtils.isEmpty(sent.getOriginalText()) || ObjectUtils.isEmpty(finalText)) {
                 continue;
             }
-            String content = "原文：" + seg.getOriginalText() + "\n译文：" + seg.getFinalText();
+            String content = "原文：" + sent.getOriginalText() + "\n译文：" + finalText;
             Map<String, Object> metadata = new HashMap<>();
             metadata.put(META_USER, customerId == null ? "" : String.valueOf(customerId));
             metadata.put(META_ROLE, ObjectUtils.isEmpty(role) ? "" : role);
@@ -111,7 +117,7 @@ public class RagService {
                 log.warn("批量写入翻译记忆失败（第 {}/{} 批）", batches.indexOf(batch) + 1, batches.size(), e);
             }
         }
-        log.info("已将 {}/{} 个翻译段落写入 RAG 记忆库", saved, documents.size());
+        log.info("已将 {}/{} 个翻译句子写入 RAG 记忆库", saved, documents.size());
     }
 
     /**

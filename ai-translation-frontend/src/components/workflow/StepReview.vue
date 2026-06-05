@@ -55,7 +55,7 @@ function onHoverLeft(orderNo) {
 
 async function saveSegment(seg) {
   try {
-    await api.saveSegmentFinal(props.task.id, seg.id, { finalText: seg.finalText })
+    await api.saveSentenceFinal(props.task.id, seg.id, { finalText: seg.finalText })
   } catch (e) {
     message.error(e.message)
   }
@@ -65,7 +65,7 @@ async function saveAll() {
   saving.value = true
   try {
     for (const seg of segments.value) {
-      await api.saveSegmentFinal(props.task.id, seg.id, { finalText: seg.finalText })
+      await api.saveSentenceFinal(props.task.id, seg.id, { finalText: seg.finalText })
     }
     message.success('全部译文已保存')
     return true

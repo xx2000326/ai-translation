@@ -34,7 +34,7 @@ function buildChangedPayload() {
 async function saveEdits() {
   saving.value = true
   try {
-    await api.updateSegments(props.task.id, buildChangedPayload())
+    await api.updateSentences(props.task.id, buildChangedPayload())
     message.success('原文修改已保存')
     return true
   } catch (e) {
@@ -72,7 +72,7 @@ onMounted(loadSegments)
 
     <div v-else-if="isParsed">
       <a-typography-text type="secondary">
-        共 {{ segments.length }} 段。可在此对原文分段进行人工校对修改。
+        共 {{ segments.length }} 句。可在此对原文分句进行人工校对修改。
       </a-typography-text>
 
       <a-spin :spinning="loading">

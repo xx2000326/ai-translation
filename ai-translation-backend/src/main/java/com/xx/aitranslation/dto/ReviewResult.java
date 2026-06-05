@@ -14,7 +14,7 @@ public record ReviewResult(List<SegmentReview> segments) {
     /**
      * 单段审校结果。
      *
-     * @param orderNo 段落顺序号（与 {@code TranslationSegment.orderNo} 对应）
+     * @param orderNo 句子顺序号（与 {@code TranslationSentence.orderNo} 对应）
      * @param score   0-100 评分
      * @param advice  中文修改建议
      */

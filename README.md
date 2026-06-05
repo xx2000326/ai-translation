@@ -85,6 +85,17 @@ CREATE DATABASE ai_translation CHARACTER SET utf8mb4;
 source ai-translation-backend/src/main/resources/db/mysql-schema.sql
 ```
 
+**MySQL 升级脚本**（已有库按时间顺序执行，执行前请备份）：
+
+| 更新时间 | 脚本 | 说明 |
+|----------|------|------|
+| 2026.06.05 | `ai-translation-backend/src/main/resources/db/mysql-migration-2026-06-05-segment-to-sentence.sql` | `translation_segment` 拆分为 document / paragraph / sentence 三表（会删除旧段落数据） |
+
+```bash
+# 示例（MySQL 客户端内）
+source ai-translation-backend/src/main/resources/db/mysql-migration-2026-06-05-segment-to-sentence.sql
+```
+
 **PostgreSQL + pgvector（向量库）：**
 ```sql
 CREATE DATABASE ai_translation_vector;

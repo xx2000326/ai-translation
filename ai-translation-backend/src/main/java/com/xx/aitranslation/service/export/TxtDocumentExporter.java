@@ -1,6 +1,6 @@
 package com.xx.aitranslation.service.export;
 
-import com.xx.aitranslation.entity.TranslationSegment;
+import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.enums.ExportFormat;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ObjectUtils;
@@ -20,11 +20,11 @@ public class TxtDocumentExporter implements DocumentExporter {
     }
 
     @Override
-    public byte[] export(List<TranslationSegment> segments) {
+    public byte[] export(List<TranslationSentence> sentences) {
         StringBuilder sb = new StringBuilder();
-        if (!ObjectUtils.isEmpty(segments)) {
-            for (TranslationSegment seg : segments) {
-                String text = getText(seg);
+        if (!ObjectUtils.isEmpty(sentences)) {
+            for (TranslationSentence sent : sentences) {
+                String text = getText(sent);
                 sb.append(ObjectUtils.isEmpty(text) ? "" : text).append("\n\n");
             }
         }

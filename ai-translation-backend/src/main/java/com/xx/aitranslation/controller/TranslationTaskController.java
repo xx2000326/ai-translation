@@ -2,17 +2,20 @@ package com.xx.aitranslation.controller;
 
 import com.xx.aitranslation.common.BizException;
 import com.xx.aitranslation.common.Result;
+import com.xx.aitranslation.dto.ParagraphDetailResponse;
 import com.xx.aitranslation.dto.SegmentFinalRequest;
-import com.xx.aitranslation.dto.SegmentUpdateRequest;
+import com.xx.aitranslation.dto.SentenceUpdateRequest;
+import com.xx.aitranslation.dto.SentenceView;
 import com.xx.aitranslation.dto.StartTranslateRequest;
 import com.xx.aitranslation.dto.TaskConfigRequest;
 import com.xx.aitranslation.dto.TaskGlossaryRequest;
 import com.xx.aitranslation.entity.TaskGlossary;
-import com.xx.aitranslation.entity.TranslationSegment;
+import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.ExportFormat;
 import com.xx.aitranslation.enums.FileType;
 import com.xx.aitranslation.enums.TaskStatus;
+import com.xx.aitranslation.service.DocumentParseService;
 import com.xx.aitranslation.service.TranslationTaskService;
 import com.xx.aitranslation.service.export.DocumentExporter;
 import com.xx.aitranslation.service.export.DocumentExporterFactory;
@@ -42,15 +45,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 翻译任务接口：任务列表 / 详情、配置保存、源文件上传与任务级临时术语管理。
- */
 @RestController
 @RequestMapping("/api/tasks")
 @RequiredArgsConstructor
 public class TranslationTaskController {
 
     private final TranslationTaskService translationTaskService;
+    private final DocumentParseService documentParseService;
     private final FileStorageService fileStorageService;
     private final TranslationPipeline translationPipeline;
     private final DocumentExporterFactory documentExporterFactory;
@@ -96,10 +97,9 @@ public class TranslationTaskController {
 
     @PostMapping("/{id}/parse")
     public Result<Map<String, String>> parse(@PathVariable Long id) {
-        // 仅允许在已上传 / 已解析 / 失败重试时触发解析，避免进行中状态被重复触发
         TranslationTask task = translationTaskService.transitFromAny(id, TaskStatus.PARSING,
                 TaskStatus.FILE_UPLOADED, TaskStatus.PARSED, TaskStatus.FAILED);
-        translationTaskService.clearSegments(id);
+        translationTaskService.clearParseResult(id);
         translationPipeline.parseAsync(id);
         Map<String, String> data = new LinkedHashMap<>();
         data.put("status", task.getStatus());
@@ -110,8 +110,6 @@ public class TranslationTaskController {
     public Result<Map<String, String>> translate(@PathVariable Long id, @RequestBody StartTranslateRequest request) {
         translationTaskService.saveTranslateConfig(id, request.getModel(),
                 request.getEnableReview(), request.getReviewModel());
-        // 同步置位 TRANSLATING 并做状态前置校验：仅允许在解析完成/已翻译/审校完成/人工审校/失败时触发，
-        // 进行中（PARSING/TRANSLATING/REVIEWING）重复点击会被拦截，避免并发重复翻译
         TranslationTask task = translationTaskService.transitFromAny(id, TaskStatus.TRANSLATING,
                 TaskStatus.PARSED, TaskStatus.TRANSLATED, TaskStatus.REVIEW_DONE,
                 TaskStatus.MANUAL_REVIEW, TaskStatus.FAILED);
@@ -121,32 +119,38 @@ public class TranslationTaskController {
         return Result.success(data);
     }
 
-    @GetMapping("/{id}/segments")
-    public Result<List<TranslationSegment>> listSegments(@PathVariable Long id) {
-        return Result.success(translationTaskService.listSegments(id));
+    @GetMapping("/{id}/paragraphs")
+    public Result<List<ParagraphDetailResponse>> listParagraphs(@PathVariable Long id) {
+        return Result.success(documentParseService.listParagraphDetails(id));
     }
 
-    @PutMapping("/{id}/segments")
-    public Result<Void> updateSegments(@PathVariable Long id, @RequestBody List<SegmentUpdateRequest> requests) {
+    /** 扁平句子列表，供审校/导出兼容 */
+    @GetMapping("/{id}/segments")
+    public Result<List<SentenceView>> listSegments(@PathVariable Long id) {
+        return Result.success(documentParseService.listSentenceViews(id));
+    }
+
+    @PutMapping("/{id}/sentences")
+    public Result<Void> updateSentences(@PathVariable Long id, @RequestBody List<SentenceUpdateRequest> requests) {
         if (ObjectUtils.isEmpty(requests)) {
             return Result.success(null);
         }
-        for (SegmentUpdateRequest request : requests) {
+        for (SentenceUpdateRequest request : requests) {
             if (ObjectUtils.isEmpty(request.getId())) {
                 continue;
             }
-            TranslationSegment segment = new TranslationSegment();
-            segment.setId(request.getId());
-            segment.setOriginalText(request.getOriginalText());
-            translationTaskService.updateSegment(segment);
+            TranslationSentence sentence = new TranslationSentence();
+            sentence.setId(request.getId());
+            sentence.setOriginalText(request.getOriginalText());
+            translationTaskService.updateSentence(sentence);
         }
         return Result.success(null);
     }
 
-    @PutMapping("/{taskId}/segments/{segmentId}/final")
-    public Result<Void> saveFinal(@PathVariable Long taskId, @PathVariable Long segmentId,
+    @PutMapping("/{taskId}/sentences/{sentenceId}/final")
+    public Result<Void> saveFinal(@PathVariable Long taskId, @PathVariable Long sentenceId,
                                   @RequestBody SegmentFinalRequest request) {
-        translationTaskService.saveFinal(segmentId, request.getFinalText());
+        translationTaskService.saveFinal(sentenceId, request.getFinalText());
         return Result.success(null);
     }
 
@@ -162,10 +166,9 @@ public class TranslationTaskController {
     public ResponseEntity<byte[]> export(@PathVariable Long id, @RequestParam String format) {
         ExportFormat exportFormat = parseFormat(format);
         TranslationTask task = translationTaskService.getById(id);
-        List<TranslationSegment> segments = translationTaskService.listSegments(id);
+        List<TranslationSentence> sentences = translationTaskService.listSentences(id);
         DocumentExporter exporter = documentExporterFactory.get(exportFormat);
-        byte[] bytes = exporter.export(segments);
-        // 仅允许在人工审校/已完成/已导出时导出
+        byte[] bytes = exporter.export(sentences);
         translationTaskService.transitFromAny(id, TaskStatus.EXPORTED,
                 TaskStatus.MANUAL_REVIEW, TaskStatus.COMPLETED, TaskStatus.EXPORTED);
 

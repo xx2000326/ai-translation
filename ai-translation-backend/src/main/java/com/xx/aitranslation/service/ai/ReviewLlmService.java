@@ -1,7 +1,7 @@
 package com.xx.aitranslation.service.ai;
 
 import com.xx.aitranslation.dto.ReviewResult;
-import com.xx.aitranslation.entity.TranslationSegment;
+import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.enums.Language;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,14 +50,14 @@ public class ReviewLlmService {
      * @param reviewModel 审校模型 code
      * @return 结构化审校结果；某批解析异常时该批回退为 {@value #FALLBACK_SCORE} 分
      */
-    public ReviewResult review(List<TranslationSegment> segs, String requirement,
+    public ReviewResult review(List<TranslationSentence> segs, String requirement,
                                String sourceLang, String targetLang, String reviewModel) {
         if (ObjectUtils.isEmpty(segs)) {
             return new ReviewResult(List.of());
         }
         List<ReviewResult.SegmentReview> merged = new ArrayList<>();
         for (int i = 0; i < segs.size(); i += BATCH_SIZE) {
-            List<TranslationSegment> batch = segs.subList(i, Math.min(i + BATCH_SIZE, segs.size()));
+            List<TranslationSentence> batch = segs.subList(i, Math.min(i + BATCH_SIZE, segs.size()));
             merged.addAll(reviewBatch(batch, requirement, sourceLang, targetLang, reviewModel));
         }
         return new ReviewResult(merged);
@@ -66,7 +66,7 @@ public class ReviewLlmService {
     /**
      * 审校单个批次，失败时仅该批回退为通过。
      */
-    private List<ReviewResult.SegmentReview> reviewBatch(List<TranslationSegment> batch, String requirement,
+    private List<ReviewResult.SegmentReview> reviewBatch(List<TranslationSentence> batch, String requirement,
                                                          String sourceLang, String targetLang, String reviewModel) {
         try {
             ChatClient client = chatModelRouter.client(reviewModel);
@@ -96,9 +96,9 @@ public class ReviewLlmService {
     /**
      * 拼接各段 orderNo + 原文 + 译文为审校输入文本。
      */
-    private String buildPairs(List<TranslationSegment> segs) {
+    private String buildPairs(List<TranslationSentence> segs) {
         StringBuilder sb = new StringBuilder();
-        for (TranslationSegment seg : segs) {
+        for (TranslationSentence seg : segs) {
             sb.append("orderNo: ").append(seg.getOrderNo()).append('\n')
                     .append("原文: ").append(ObjectUtils.isEmpty(seg.getOriginalText()) ? "" : seg.getOriginalText()).append('\n')
                     .append("译文: ").append(ObjectUtils.isEmpty(seg.getTranslatedText()) ? "" : seg.getTranslatedText()).append('\n')
@@ -110,7 +110,7 @@ public class ReviewLlmService {
     /**
      * 兜底列表：批次内所有段落给 {@value #FALLBACK_SCORE} 分，视为通过。
      */
-    private List<ReviewResult.SegmentReview> fallbackList(List<TranslationSegment> segs) {
+    private List<ReviewResult.SegmentReview> fallbackList(List<TranslationSentence> segs) {
         return segs.stream()
                 .map(s -> new ReviewResult.SegmentReview(
                         s.getOrderNo() == null ? 0 : s.getOrderNo(), FALLBACK_SCORE, EMPTY_ADVICE))

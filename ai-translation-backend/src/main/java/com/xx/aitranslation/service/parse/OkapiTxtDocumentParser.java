@@ -2,28 +2,30 @@ package com.xx.aitranslation.service.parse;
 
 import com.xx.aitranslation.enums.FileType;
 import net.sf.okapi.common.LocaleId;
-import org.apache.poi.xwpf.usermodel.XWPFDocument;
-import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * DOCX 解析器（对齐 yunshu WordParserMvp：POI 段落 + SegmentationUtils.segment）。
+ * TXT 解析器（对齐 yunshu PlainTextParserMvp：按行段落 + SegmentationUtils.segment）。
  */
 @Component
-public class DocxDocumentParser implements DocumentParser {
+public class OkapiTxtDocumentParser implements DocumentParser {
 
     @Override
     public ParsedDocument parse(InputStream in, String sourceLang) throws Exception {
         LocaleId locale = ParseLocaleHelper.toLocaleId(sourceLang);
         List<ParsedParagraph> paragraphs = new ArrayList<>();
-        try (XWPFDocument document = new XWPFDocument(in)) {
-            int paraOrder = 0;
-            for (XWPFParagraph paragraph : document.getParagraphs()) {
-                String text = ParseTextUtils.removeControlChar(paragraph.getText());
+        int paraOrder = 0;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String text = ParseTextUtils.removeControlChar(line);
                 if (ParseTextUtils.isNonTranslationText(text)) {
                     continue;
                 }
@@ -41,6 +43,6 @@ public class DocxDocumentParser implements DocumentParser {
 
     @Override
     public FileType supportType() {
-        return FileType.DOCX;
+        return FileType.TXT;
     }
 }
