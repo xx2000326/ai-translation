@@ -78,8 +78,8 @@ onMounted(async () => {
 <template>
   <div>
     <div class="page-header">
-      <a-typography-title :level="4" style="margin: 0">术语库</a-typography-title>
-      <a-typography-text type="secondary">所有客户的术语库</a-typography-text>
+      <h1 class="page-title">术语库</h1>
+      <p class="page-subtitle">沉淀客户专属术语，翻译时强制保持用词一致</p>
     </div>
 
     <a-card title="新增术语" size="small" style="margin-bottom: 16px">

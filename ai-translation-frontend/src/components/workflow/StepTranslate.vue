@@ -17,7 +17,9 @@ const form = ref({
 
 const modelOptions = computed(() => store.models.map((m) => ({ value: m, label: m })))
 
-const RUNNING = ['TRANSLATING', 'REVIEWING']
+// 翻译阶段的所有在途状态都视为"运行中"，避免在 TRANSLATED / REVIEW_DONE 等中间态
+// 闪回到"开始 AI 翻译"设置卡片（翻译/审校/风格统一耗时较长时尤为明显）。
+const RUNNING = ['TRANSLATING', 'TRANSLATED', 'REVIEWING', 'REVIEW_DONE']
 const isRunning = computed(() => RUNNING.includes(props.task.status))
 
 const statusText = computed(() => {
@@ -46,7 +48,8 @@ async function startTranslate() {
       reviewModel: form.value.reviewModel
     })
     message.success('已开始 AI 翻译')
-    emit('next')
+    // 停留在「AI 翻译」步骤展示进度；完成后由轮询自动推进到人工审校
+    emit('next', 2)
   } catch (e) {
     message.error(e.message)
   } finally {
@@ -57,9 +60,11 @@ async function startTranslate() {
 
 <template>
   <div>
-    <div v-if="isRunning" style="text-align: center; padding: 60px 0">
-      <a-spin size="large" />
-      <div style="margin-top: 16px; color: #888">{{ statusText }}</div>
+    <div v-if="isRunning" class="run-stage">
+      <div class="run-emoji">{{ task.status === 'REVIEWING' ? '🔍' : '✨' }}</div>
+      <a-spin size="large" style="margin-top: 12px" />
+      <div class="run-text">{{ statusText }}</div>
+      <div class="run-sub">多 Agent 正在并行处理，可稍候片刻…</div>
     </div>
 
     <a-card v-else title="AI 翻译设置" size="small" style="max-width: 520px">

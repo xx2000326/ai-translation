@@ -77,7 +77,8 @@ async function removeCustomer(c) {
 <template>
   <div>
     <div class="page-header">
-      <a-typography-title :level="4" style="margin: 0">客户管理</a-typography-title>
+      <h1 class="page-title">客户管理</h1>
+      <p class="page-subtitle">维护客户档案与默认翻译偏好，作为项目与术语库的归属</p>
     </div>
 
     <a-row :gutter="16">

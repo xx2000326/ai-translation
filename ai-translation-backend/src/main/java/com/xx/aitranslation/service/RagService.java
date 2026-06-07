@@ -22,8 +22,10 @@ import java.util.stream.IntStream;
 /**
  * RAG 记忆服务：基于 PGVector 存储与检索历史翻译，增强一致性与上下文能力。
  * <p>
- * 这里使用 SpringAI 的 {@link VectorStore} 抽象，role / style 等业务字段保存在 metadata 中，
- * 检索时按 role + style 过滤，提升相似翻译的相关性。
+ * 这里使用 SpringAI 的 {@link VectorStore} 抽象，business 字段统一保存在 metadata：
+ * {@code customerId + role + style + sourceLang + targetLang}，检索时按这五个维度过滤，
+ * 保证单句翻译与文档流水线写入 / 检索的记忆维度一致、可互相复用。
+ * 入库内容统一为"原文：xxx\n译文：xxx"翻译对，便于按语义检索时同时命中原文与译文。
  */
 @Slf4j
 @Service
@@ -40,24 +42,25 @@ public class RagService {
     private static final String META_USER = "customerId";
     private static final String META_ROLE = "role";
     private static final String META_STYLE = "style";
+    private static final String META_SOURCE_LANG = "sourceLang";
+    private static final String META_TARGET_LANG = "targetLang";
 
     private final VectorStore vectorStore;
 
     /**
-     * 写入翻译记忆（向量化由 EmbeddingModel 在 VectorStore 内部完成），按客户隔离。
+     * 写入单条翻译记忆（原文 + 译文翻译对），按 customerId + role + style + 语言方向隔离。
      *
-     * @param content 入库的文本（一般为原文，便于后续按语义检索）
+     * @param original   原文
+     * @param translated 译文
      */
-    public void saveMemory(String content, Long customerId, String role, String style) {
-        if (ObjectUtils.isEmpty(content)) {
+    public void saveMemory(String original, String translated, Long customerId,
+                           String role, String style, String sourceLang, String targetLang) {
+        if (ObjectUtils.isEmpty(original) || ObjectUtils.isEmpty(translated)) {
             return;
         }
         try {
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put(META_USER, customerId == null ? "" : String.valueOf(customerId));
-            metadata.put(META_ROLE, role);
-            metadata.put(META_STYLE, style);
-            Document document = new Document(content, metadata);
+            Document document = new Document(buildPairContent(original, translated),
+                    buildMetadata(customerId, role, style, sourceLang, targetLang));
             vectorStore.add(List.of(document));
         } catch (Exception e) {
             // RAG 写入失败不应阻断主翻译流程
@@ -66,39 +69,24 @@ public class RagService {
     }
 
     /**
-     * 异步批量将人工审校确认后的段落翻译对写入向量库，供后续翻译任务检索参考。
+     * 异步批量将段落翻译对写入向量库，供后续翻译任务检索参考。
      * <p>
-     * 每个段落以"原文：xxx\n译文：xxx"的格式存储，保证语义检索时能同时命中原文与译文。
-     * 原文或最终译文为空的段落跳过，不影响整体流程。
-     *
-     * @param segments   已完成审校的段落列表
-     * @param customerId 客户ID（用于按客户隔离检索）
-     * @param role       翻译角色
-     * @param style      翻译风格
+     * 每个段落以"原文：xxx\n译文：xxx"的格式存储；原文或最终译文为空的段落跳过，不影响整体流程。
      */
     @Async("taskExecutor")
-    public void saveTranslationMemoriesAsync(List<TranslationSentence> sentences,
-                                             Long customerId, String role, String style) {
+    public void saveTranslationMemoriesAsync(List<TranslationSentence> sentences, Long customerId,
+                                             String role, String style, String sourceLang, String targetLang) {
         if (ObjectUtils.isEmpty(sentences)) {
             return;
         }
+        Map<String, Object> metadata = buildMetadata(customerId, role, style, sourceLang, targetLang);
         List<Document> documents = new ArrayList<>();
         for (TranslationSentence sent : sentences) {
-            String finalText = sent.getFinalText();
-            if (ObjectUtils.isEmpty(finalText)) {
-                finalText = ObjectUtils.isEmpty(sent.getReviewedText())
-                        ? sent.getTranslatedText()
-                        : sent.getReviewedText();
-            }
+            String finalText = resolveTranslated(sent);
             if (ObjectUtils.isEmpty(sent.getOriginalText()) || ObjectUtils.isEmpty(finalText)) {
                 continue;
             }
-            String content = "原文：" + sent.getOriginalText() + "\n译文：" + finalText;
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put(META_USER, customerId == null ? "" : String.valueOf(customerId));
-            metadata.put(META_ROLE, ObjectUtils.isEmpty(role) ? "" : role);
-            metadata.put(META_STYLE, ObjectUtils.isEmpty(style) ? "" : style);
-            documents.add(new Document(content, metadata));
+            documents.add(new Document(buildPairContent(sent.getOriginalText(), finalText), new HashMap<>(metadata)));
         }
         if (documents.isEmpty()) {
             return;
@@ -121,19 +109,23 @@ public class RagService {
     }
 
     /**
-     * 检索与输入文本语义相似的历史翻译（限定当前客户），构建注入 Prompt 的参考上下文。
+     * 检索与输入文本语义相似的历史翻译（按 customerId + role + style + 语言方向过滤），构建注入 Prompt 的参考上下文。
      *
      * @return 多行历史参考文本，无命中时返回空串
      */
-    public String buildRagContext(String text, Long customerId, String role, String style) {
+    public String buildRagContext(String text, Long customerId, String role, String style,
+                                  String sourceLang, String targetLang) {
         if (ObjectUtils.isEmpty(text)) {
             return "";
         }
         try {
             FilterExpressionBuilder fb = new FilterExpressionBuilder();
             Filter.Expression filter = fb.and(
-                    fb.eq(META_USER, customerId == null ? "" : String.valueOf(customerId)),
-                    fb.and(fb.eq(META_ROLE, role), fb.eq(META_STYLE, style))
+                    fb.eq(META_USER, normalize(customerId)),
+                    fb.and(
+                            fb.and(fb.eq(META_ROLE, normalize(role)), fb.eq(META_STYLE, normalize(style))),
+                            fb.and(fb.eq(META_SOURCE_LANG, normalize(sourceLang)), fb.eq(META_TARGET_LANG, normalize(targetLang)))
+                    )
             ).build();
 
             SearchRequest request = SearchRequest.builder()
@@ -155,5 +147,34 @@ public class RagService {
             log.warn("检索翻译记忆失败: {}", e.getMessage());
             return "";
         }
+    }
+
+    private Map<String, Object> buildMetadata(Long customerId, String role, String style,
+                                              String sourceLang, String targetLang) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put(META_USER, normalize(customerId));
+        metadata.put(META_ROLE, normalize(role));
+        metadata.put(META_STYLE, normalize(style));
+        metadata.put(META_SOURCE_LANG, normalize(sourceLang));
+        metadata.put(META_TARGET_LANG, normalize(targetLang));
+        return metadata;
+    }
+
+    private String buildPairContent(String original, String translated) {
+        return "原文：" + original + "\n译文：" + translated;
+    }
+
+    private String resolveTranslated(TranslationSentence sent) {
+        if (!ObjectUtils.isEmpty(sent.getFinalText())) {
+            return sent.getFinalText();
+        }
+        if (!ObjectUtils.isEmpty(sent.getReviewedText())) {
+            return sent.getReviewedText();
+        }
+        return sent.getTranslatedText();
+    }
+
+    private String normalize(Object value) {
+        return ObjectUtils.isEmpty(value) ? "" : String.valueOf(value);
     }
 }

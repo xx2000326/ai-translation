@@ -19,8 +19,9 @@ const task = ref(null)
 const loading = ref(false)
 let timer = null
 
-// 进行中状态（需要轮询）
-const RUNNING_STATUS = ['PARSING', 'TRANSLATING', 'REVIEWING']
+// 进行中状态（需要轮询）。含翻译/审校的所有在途中间态（TRANSLATED / REVIEW_DONE），
+// 保证从初翻到人工审校之间持续轮询，避免中间态被误判为停止。
+const RUNNING_STATUS = ['PARSING', 'TRANSLATING', 'TRANSLATED', 'REVIEWING', 'REVIEW_DONE']
 // 稳定态（停止轮询）
 const STABLE_STATUS = ['PARSED', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED', 'FAILED']
 
@@ -112,12 +113,12 @@ function stopPolling() {
   }
 }
 
-// 子步骤完成回调：刷新任务并由状态映射决定步骤
-// 若任务状态尚未推进（如 PARSED 后用户点击"确认并进入翻译"，状态不变），则强制前进一步
-async function onStepNext() {
+// 子步骤完成回调：刷新任务（refreshTask 会按状态前进步骤），并可由子组件指定一个"最小前进到"的目标步骤。
+// 仅向前推进，绝不回退：避免出现「解析触发后直接跳到 AI 翻译」或「翻译极快时被拉回」的问题。
+async function onStepNext(target) {
   await refreshTask()
-  if (statusStep.value <= activeStep.value && activeStep.value < steps.length - 1) {
-    activeStep.value += 1
+  if (typeof target === 'number' && target > activeStep.value) {
+    activeStep.value = Math.min(target, steps.length - 1)
   }
 }
 
@@ -139,52 +140,53 @@ onUnmounted(stopPolling)
 
 <template>
   <div>
-    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center">
-      <div style="display: flex; align-items: center; gap: 12px">
-        <a-button @click="emit('back')">
+    <div class="page-header">
+      <div class="workflow-head">
+        <a-button shape="circle" @click="emit('back')">
           <template #icon><ArrowLeftOutlined /></template>
-          返回
         </a-button>
         <div>
-          <a-typography-title :level="4" style="margin: 0">翻译工作流</a-typography-title>
-          <a-typography-text type="secondary">
-            {{ projectName || '项目' }} · 任务 #{{ taskId }}
-          </a-typography-text>
+          <h1 class="page-title" style="font-size: 24px">{{ projectName || '翻译项目' }}</h1>
+          <p class="page-subtitle">翻译工作流 · 任务 #{{ taskId }}</p>
         </div>
       </div>
     </div>
 
-    <a-steps
-      :current="activeStep"
-      style="margin-bottom: 24px"
-      :status="isFailed ? 'error' : 'process'"
-      @change="onStepClick"
-    >
-      <a-step
-        v-for="(s, i) in steps"
-        :key="i"
-        :title="s.title"
-        :description="s.description"
-      />
-    </a-steps>
+    <div class="workflow-card">
+      <a-steps
+        :current="activeStep"
+        style="margin-bottom: 6px"
+        :status="isFailed ? 'error' : 'process'"
+        @change="onStepClick"
+      >
+        <a-step
+          v-for="(s, i) in steps"
+          :key="i"
+          :title="s.title"
+          :description="s.description"
+        />
+      </a-steps>
+    </div>
 
     <a-alert
       v-if="isFailed && task?.errorMsg"
       type="error"
       show-icon
-      style="margin-bottom: 16px"
+      style="margin: 16px 0"
       message="任务执行失败"
       :description="task.errorMsg"
     />
 
-    <a-spin :spinning="loading">
-      <div v-if="task">
-        <StepConfig v-if="activeStep === 0" :task="task" @next="onStepNext" />
-        <StepParse v-else-if="activeStep === 1" :task="task" @next="onStepNext" />
-        <StepTranslate v-else-if="activeStep === 2" :task="task" @next="onStepNext" />
-        <StepReview v-else-if="activeStep === 3" :task="task" @done="onStepNext" />
-        <StepExport v-else-if="activeStep === 4" :task="task" />
-      </div>
-    </a-spin>
+    <div class="workflow-card">
+      <a-spin :spinning="loading">
+        <div v-if="task">
+          <StepConfig v-if="activeStep === 0" :task="task" @next="onStepNext" />
+          <StepParse v-else-if="activeStep === 1" :task="task" @next="onStepNext" />
+          <StepTranslate v-else-if="activeStep === 2" :task="task" @next="onStepNext" />
+          <StepReview v-else-if="activeStep === 3" :task="task" @done="onStepNext" />
+          <StepExport v-else-if="activeStep === 4" :task="task" />
+        </div>
+      </a-spin>
+    </div>
   </div>
 </template>

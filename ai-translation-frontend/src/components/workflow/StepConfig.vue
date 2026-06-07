@@ -15,15 +15,21 @@ const form = ref({
   description: props.task.description || '',
   sourceLang: props.task.sourceLang || undefined,
   targetLang: props.task.targetLang || undefined,
+  parseGranularity: props.task.parseGranularity || 'SENTENCE',
   enableGlossary: !!props.task.enableGlossary,
   enableHistory: !!props.task.enableHistory,
   translateModel: props.task.translateModel || undefined,
   enableReview: !!props.task.enableReview,
-  reviewModel: props.task.reviewModel || 'deepseek-chat'
+  reviewModel: props.task.reviewModel || 'deepseek-chat',
+  enableSummary: !!props.task.enableSummary
 })
 
 const langOptions = computed(() => store.languages.map((l) => ({ value: l.code, label: l.label })))
 const modelOptions = computed(() => store.models.map((m) => ({ value: m, label: m })))
+const granularityOptions = [
+  { value: 'SENTENCE', label: '按句拆分（逐句翻译，更细粒度）' },
+  { value: 'PARAGRAPH', label: '按段拆分（整段翻译，保持上下文）' }
+]
 
 // 上传文件
 const uploadedFileName = ref(props.task.sourceFileName || '')
@@ -112,11 +118,13 @@ async function saveAndParse() {
       description: form.value.description,
       sourceLang: form.value.sourceLang,
       targetLang: form.value.targetLang,
+      parseGranularity: form.value.parseGranularity,
       enableGlossary: form.value.enableGlossary,
       enableHistory: form.value.enableHistory,
       translateModel: form.value.translateModel,
       enableReview: form.value.enableReview,
-      reviewModel: form.value.reviewModel
+      reviewModel: form.value.reviewModel,
+      enableSummary: form.value.enableSummary
     })
     if (!uploadedFileName.value) {
       message.success('配置已保存，请上传待翻译文件后点击解析')
@@ -124,7 +132,8 @@ async function saveAndParse() {
     }
     await api.parseTask(props.task.id)
     message.success('配置已保存，开始解析')
-    emit('next')
+    // 前往「解析与校对」步骤（不要跳过它）
+    emit('next', 1)
   } catch (e) {
     message.error(e.message)
   } finally {
@@ -159,6 +168,13 @@ onMounted(loadGlossary)
                 </a-form-item>
               </a-col>
             </a-row>
+            <a-form-item label="拆分粒度">
+              <a-radio-group v-model:value="form.parseGranularity" option-type="button" button-style="solid">
+                <a-radio-button v-for="g in granularityOptions" :key="g.value" :value="g.value">
+                  {{ g.label }}
+                </a-radio-button>
+              </a-radio-group>
+            </a-form-item>
             <a-row :gutter="16">
               <a-col :span="12">
                 <a-form-item label="初翻译模型">
@@ -172,19 +188,29 @@ onMounted(loadGlossary)
               </a-col>
             </a-row>
             <a-row :gutter="16">
-              <a-col :span="8">
+              <a-col :span="6">
                 <a-form-item label="启用术语库">
                   <a-switch v-model:checked="form.enableGlossary" />
                 </a-form-item>
               </a-col>
-              <a-col :span="8">
+              <a-col :span="6">
                 <a-form-item label="历史数据优化">
                   <a-switch v-model:checked="form.enableHistory" />
                 </a-form-item>
               </a-col>
-              <a-col :span="8">
+              <a-col :span="6">
                 <a-form-item label="AI 审校">
                   <a-switch v-model:checked="form.enableReview" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="6">
+                <a-form-item>
+                  <template #label>
+                    <a-tooltip title="审校后对全文做术语 / 语气 / 人称一致性归一（汇总 Agent）">
+                      风格统一
+                    </a-tooltip>
+                  </template>
+                  <a-switch v-model:checked="form.enableSummary" />
                 </a-form-item>
               </a-col>
             </a-row>

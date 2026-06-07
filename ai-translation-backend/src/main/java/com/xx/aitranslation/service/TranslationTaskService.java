@@ -7,6 +7,7 @@ import com.xx.aitranslation.entity.Project;
 import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
+import com.xx.aitranslation.enums.ParseGranularity;
 import com.xx.aitranslation.enums.TaskStatus;
 import com.xx.aitranslation.mapper.ProjectMapper;
 import com.xx.aitranslation.mapper.TaskGlossaryMapper;
@@ -112,7 +113,7 @@ public class TranslationTaskService {
         Project project = Optional.ofNullable(projectMapper.selectById(task.getProjectId()))
                 .orElse(new Project());
         ragService.saveTranslationMemoriesAsync(sentences, task.getCustomerId(),
-                project.getRole(), project.getStyle());
+                project.getRole(), project.getStyle(), task.getSourceLang(), task.getTargetLang());
     }
 
     public String resolveFinalText(TranslationSentence sentence) {
@@ -132,8 +133,10 @@ public class TranslationTaskService {
         task.setReviewModel(DEFAULT_REVIEW_MODEL);
         task.setSourceLang(DEFAULT_SOURCE_LANG);
         task.setTargetLang(DEFAULT_TARGET_LANG);
+        task.setParseGranularity(ParseGranularity.SENTENCE.name());
         task.setEnableHistory(false);
         task.setEnableReview(false);
+        task.setEnableSummary(false);
         task.setStatus(TaskStatus.DRAFT.name());
         translationTaskMapper.insert(task);
         return task;
@@ -153,6 +156,9 @@ public class TranslationTaskService {
         if (!ObjectUtils.isEmpty(req.getTargetLang())) {
             task.setTargetLang(req.getTargetLang());
         }
+        if (!ObjectUtils.isEmpty(req.getParseGranularity())) {
+            task.setParseGranularity(req.getParseGranularity());
+        }
         if (!ObjectUtils.isEmpty(req.getTranslateModel())) {
             task.setTranslateModel(req.getTranslateModel());
         }
@@ -167,6 +173,9 @@ public class TranslationTaskService {
         }
         if (!ObjectUtils.isEmpty(req.getEnableReview())) {
             task.setEnableReview(req.getEnableReview());
+        }
+        if (!ObjectUtils.isEmpty(req.getEnableSummary())) {
+            task.setEnableSummary(req.getEnableSummary());
         }
         translationTaskMapper.updateById(task);
         return task;

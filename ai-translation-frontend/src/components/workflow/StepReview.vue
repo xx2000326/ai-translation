@@ -102,8 +102,8 @@ onUnmounted(() => {
 
 <template>
   <a-spin :spinning="loading">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
-      <a-typography-text type="secondary">左侧原文，右侧译文（可编辑）。滚动或悬停左侧会高亮右侧对应段。</a-typography-text>
+    <div class="review-toolbar">
+      <a-typography-text type="secondary">左侧原文 · 右侧译文（可编辑）。滚动或悬停左侧，右侧对应段会自动高亮。</a-typography-text>
       <a-space>
         <a-button :loading="saving" @click="saveAll">保存全部</a-button>
         <a-button type="primary" :loading="saving" @click="confirmComplete">确认完成</a-button>
@@ -112,7 +112,7 @@ onUnmounted(() => {
 
     <a-row :gutter="16">
       <a-col :span="12">
-        <div class="review-header">原文</div>
+        <div class="review-header">📄 原文</div>
         <div ref="leftRef" class="review-pane">
           <div
             v-for="seg in segments"
@@ -131,7 +131,7 @@ onUnmounted(() => {
       </a-col>
 
       <a-col :span="12">
-        <div class="review-header">译文</div>
+        <div class="review-header">✍️ 译文</div>
         <div ref="rightRef" class="review-pane">
           <div v-for="seg in segments" :key="seg.id" class="review-seg" :data-seg="seg.orderNo">
             <div class="seg-meta">

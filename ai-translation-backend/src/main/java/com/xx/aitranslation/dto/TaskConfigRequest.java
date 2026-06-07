@@ -22,6 +22,9 @@ public class TaskConfigRequest {
     /** 目标语言 code */
     private String targetLang;
 
+    /** 解析拆分粒度：SENTENCE（按句）/ PARAGRAPH（按段） */
+    private String parseGranularity;
+
     /** 是否启用术语库 */
     private Boolean enableGlossary;
 
@@ -36,4 +39,7 @@ public class TaskConfigRequest {
 
     /** 审校使用的模型 code */
     private String reviewModel;
+
+    /** 是否启用全文风格统一（汇总 Agent） */
+    private Boolean enableSummary;
 }

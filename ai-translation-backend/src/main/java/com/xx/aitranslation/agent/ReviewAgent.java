@@ -1,8 +1,9 @@
-package com.xx.aitranslation.service.ai;
+package com.xx.aitranslation.agent;
 
 import com.xx.aitranslation.dto.ReviewResult;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.enums.Language;
+import com.xx.aitranslation.service.ai.ChatModelRouter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -10,7 +11,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 import org.springframework.util.ObjectUtils;
 
 import java.util.ArrayList;
@@ -19,20 +20,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 审校 LLM 服务：将原文 / 译文成对喂给审校模型，按段给出评分与中文修改建议（结构化输出）。
+ * AIPE 审校 Agent（V1 模块五）：将原文 / 译文成对喂给审校模型，逐段给出评分与中文修改建议（结构化输出）。
  * <p>
- * 长文档会按 {@link #BATCH_SIZE} 分批送审，避免单次 Prompt 过长导致输出被截断、
+ * 长文档按 {@link #BATCH_SIZE} 分批送审，避免单次 Prompt 过长导致输出被截断、
  * JSON 解析失败而整篇被静默判为通过；单批失败仅该批回退，不影响其余批次。
  */
 @Slf4j
-@Service
+@Component
 @RequiredArgsConstructor
-public class ReviewLlmService {
+public class ReviewAgent {
 
     /** 解析失败兜底分（视为通过，避免审校循环卡死） */
     private static final int FALLBACK_SCORE = 80;
     private static final String EMPTY_ADVICE = "无";
-    /** 每批送审的段落数，避免长文档超出模型上下文/输出上限 */
+    /** 每批送审的段落数，避免长文档超出模型上下文 / 输出上限 */
     private static final int BATCH_SIZE = 15;
 
     @Value("classpath:prompts/review-prompt.st")

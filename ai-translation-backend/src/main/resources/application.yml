@@ -59,6 +59,11 @@ app:
     # 启动时自动创建表与索引（含 vector 扩展），生产可关闭后手动维护
     initialize-schema: true
 
+  # ===================== 翻译流水线 =====================
+  translation:
+    # 句子级并发翻译并发度（V1 模块四：多 Agent 并发翻译）
+    concurrency: ${TRANSLATION_CONCURRENCY:8}
+
   # ===================== 文件存储（源文件上传） =====================
   # type=local 时写本地磁盘（默认）；type=minio 时走 MinIO 对象存储
   storage:

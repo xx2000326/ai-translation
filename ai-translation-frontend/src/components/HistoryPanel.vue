@@ -24,10 +24,10 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center">
+    <div class="page-header page-header-flex">
       <div>
-        <a-typography-title :level="4" style="margin: 0">历史记录</a-typography-title>
-        <a-typography-text type="secondary">所有客户的翻译历史</a-typography-text>
+        <h1 class="page-title">翻译历史</h1>
+        <p class="page-subtitle">回溯所有客户的快速翻译记录</p>
       </div>
       <a-space>
         <a-input-search
@@ -45,19 +45,19 @@ onMounted(load)
       :data-source="list"
       :loading="loading"
       item-layout="vertical"
-      :pagination="list.length > 5 ? { pageSize: 5 } : false"
+      :pagination="list.length > 6 ? { pageSize: 6 } : false"
     >
       <template #renderItem="{ item }">
-        <a-list-item>
-          <a-space style="margin-bottom: 8px">
-            <a-tag v-if="item.customerName" color="blue">{{ item.customerName }}</a-tag>
+        <div class="history-item">
+          <a-space style="margin-bottom: 8px" wrap>
+            <a-tag v-if="item.customerName" color="warning">{{ item.customerName }}</a-tag>
             <a-tag color="processing">{{ store.roleLabel(item.role) }}</a-tag>
             <a-tag>{{ store.styleLabel(item.style) }}</a-tag>
-            <span style="color: #999; font-size: 12px">{{ item.createTime }}</span>
+            <span style="color: var(--ink-faint); font-size: 12px">{{ item.createTime }}</span>
           </a-space>
           <div class="history-original"><b>原文：</b>{{ item.originalText }}</div>
           <div class="history-translated"><b>译文：</b>{{ item.translatedText }}</div>
-        </a-list-item>
+        </div>
       </template>
     </a-list>
   </div>

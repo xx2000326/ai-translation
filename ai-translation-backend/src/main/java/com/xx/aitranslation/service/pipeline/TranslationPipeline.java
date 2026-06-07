@@ -1,22 +1,29 @@
 package com.xx.aitranslation.service.pipeline;
 
+import com.xx.aitranslation.agent.AgentContext;
+import com.xx.aitranslation.agent.ReviewAgent;
+import com.xx.aitranslation.agent.SummaryAgent;
+import com.xx.aitranslation.agent.TranslationAgent;
 import com.xx.aitranslation.common.BizException;
 import com.xx.aitranslation.dto.ReviewResult;
+import com.xx.aitranslation.entity.Project;
 import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.FileType;
-import com.xx.aitranslation.enums.Language;
+import com.xx.aitranslation.enums.ParseGranularity;
 import com.xx.aitranslation.enums.TaskStatus;
+import com.xx.aitranslation.enums.TranslationRole;
+import com.xx.aitranslation.enums.TranslationStyle;
+import com.xx.aitranslation.mapper.ProjectMapper;
 import com.xx.aitranslation.service.DocumentParseService;
 import com.xx.aitranslation.service.GlossaryService;
 import com.xx.aitranslation.service.RagService;
 import com.xx.aitranslation.service.TranslationTaskService;
-import com.xx.aitranslation.service.ai.ReviewLlmService;
-import com.xx.aitranslation.service.ai.TranslationLlmService;
 import com.xx.aitranslation.service.parse.DocumentParserFactory;
 import com.xx.aitranslation.service.parse.ParsedDocument;
 import com.xx.aitranslation.service.storage.FileStorageService;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -28,34 +35,54 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
+/**
+ * 翻译流水线编排器（V1 planner）：按状态机驱动 解析 → 并发翻译 → AI 审校循环 → 全文风格统一 → 人工审校。
+ * <p>
+ * 翻译以句子（{@code TranslationSentence}）为最小单元，通过 {@code translationExecutor} 并发执行（V1 模块四）；
+ * 角色 / 风格 / 整体要求从所属项目与任务注入各 Agent（V1 模块三 / 五 / 六 / 七）。
+ * 解析阶段复用已验证的 {@code parse} 包，本编排器仅做衔接，不改解析逻辑。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class TranslationPipeline {
 
+    /** 审校及格分 */
     private static final int PASS_SCORE = 80;
+    /** 审校最大循环轮次，防止死循环 */
     private static final int MAX_ROUND = 3;
-    private static final String RAG_ROLE = "document";
 
     private final TranslationTaskService translationTaskService;
     private final DocumentParseService documentParseService;
     private final FileStorageService fileStorageService;
     private final DocumentParserFactory parserFactory;
-    private final TranslationLlmService translationLlmService;
-    private final ReviewLlmService reviewLlmService;
+    private final ProjectMapper projectMapper;
+    private final TranslationAgent translationAgent;
+    private final ReviewAgent reviewAgent;
+    private final SummaryAgent summaryAgent;
     private final GlossaryService glossaryService;
     private final RagService ragService;
 
+    /** 句子级并发翻译线程池（按名注入，避免与 taskExecutor 冲突） */
+    @Resource(name = "translationExecutor")
+    private Executor translationExecutor;
+
+    /**
+     * 异步解析：下载源文件 → 调用解析器 → 落库 → 状态置 PARSED。
+     */
     @Async("taskExecutor")
     public void parseAsync(Long taskId) {
         try {
             TranslationTask task = translationTaskService.getById(taskId);
             FileType fileType = FileType.valueOf(task.getSourceFileType());
+            ParseGranularity granularity = ParseGranularity.fromCode(task.getParseGranularity());
             ParsedDocument parsed;
             try (InputStream in = fileStorageService.download(task.getSourceFileKey())) {
-                parsed = parserFactory.get(fileType).parse(in, task.getSourceLang());
+                parsed = parserFactory.get(fileType).parse(in, task.getSourceLang(), granularity);
             }
             documentParseService.saveParsedDocument(taskId, task, parsed);
             translationTaskService.transit(taskId, TaskStatus.PARSING, TaskStatus.PARSED);
@@ -68,74 +95,88 @@ public class TranslationPipeline {
         }
     }
 
+    /**
+     * 异步翻译编排：并发初翻译 → （可选）AI 审校循环 → （可选）全文风格统一 → 人工审校。
+     */
     @Async("taskExecutor")
     public void translateAsync(Long taskId) {
         try {
             TranslationTask task = translationTaskService.getById(taskId);
-            translationTaskService.transit(taskId, null, TaskStatus.TRANSLATING);
-
-            String sourceLang = Language.labelOf(task.getSourceLang());
-            String targetLang = Language.labelOf(task.getTargetLang());
-            String model = task.getTranslateModel();
-            String role = null;
-            String style = null;
-            String ragRole = RAG_ROLE;
-            String ragStyle = ObjectUtils.isEmpty(task.getTargetLang()) ? "" : task.getTargetLang();
-
-            boolean enableGlossary = !ObjectUtils.isEmpty(task.getEnableGlossary()) && task.getEnableGlossary();
-            boolean enableHistory = !ObjectUtils.isEmpty(task.getEnableHistory()) && task.getEnableHistory();
-            String tempGlossary = enableGlossary ? buildTempGlossary(taskId) : "";
+            TranslationContext ctx = buildContext(task);
 
             List<TranslationSentence> sentences = translationTaskService.listSentences(taskId);
-            for (TranslationSentence sent : sentences) {
-                String glossaryRules = enableGlossary
-                        ? mergeGlossary(glossaryService.buildGlossaryRules(task.getCustomerId(), sent.getOriginalText()), tempGlossary)
-                        : "";
-                String ragContext = enableHistory
-                        ? ragService.buildRagContext(sent.getOriginalText(), task.getCustomerId(), ragRole, ragStyle)
-                        : "";
-                String translated = translationLlmService.translate(sent.getOriginalText(), role, style,
-                        sourceLang, targetLang, glossaryRules, ragContext, null, model);
-                sent.setTranslatedText(translated);
-                translationTaskService.updateSentence(sent);
-                if (enableHistory) {
-                    ragService.saveMemory(sent.getOriginalText(), task.getCustomerId(), ragRole, ragStyle);
-                }
+            translateSentencesConcurrently(ctx, sentences);
+            translationTaskService.transit(taskId, null, TaskStatus.TRANSLATED);
+
+            if (ctx.enableReview) {
+                reviewLoop(ctx);
             }
 
-            boolean enableReview = !ObjectUtils.isEmpty(task.getEnableReview()) && task.getEnableReview();
-            if (enableReview) {
-                reviewLoop(taskId);
-            } else {
-                translationTaskService.transit(taskId, null, TaskStatus.TRANSLATED);
-                for (TranslationSentence sent : sentences) {
-                    sent.setReviewedText(sent.getTranslatedText());
-                    translationTaskService.updateSentence(sent);
-                }
-                translationTaskService.transit(taskId, null, TaskStatus.MANUAL_REVIEW);
-            }
+            finalizeTranslation(ctx);
+            translationTaskService.transit(taskId, null, TaskStatus.MANUAL_REVIEW);
         } catch (Exception e) {
             log.error("AI 翻译失败, taskId={}", taskId, e);
             translationTaskService.fail(taskId, e.getMessage());
         }
     }
 
-    public void reviewLoop(Long taskId) {
-        TranslationTask task = translationTaskService.getById(taskId);
-        String sourceLang = Language.labelOf(task.getSourceLang());
-        String targetLang = Language.labelOf(task.getTargetLang());
-        String requirement = task.getRequirement();
-        String translateModel = task.getTranslateModel();
-        String reviewModel = task.getReviewModel();
-        boolean enableGlossary = !ObjectUtils.isEmpty(task.getEnableGlossary()) && task.getEnableGlossary();
-        boolean enableHistory = !ObjectUtils.isEmpty(task.getEnableHistory()) && task.getEnableHistory();
-        String tempGlossary = enableGlossary ? buildTempGlossary(taskId) : "";
+    /**
+     * 并发翻译所有句子（V1 模块四）：每句一个任务提交到 {@code translationExecutor}，全部完成后返回。
+     */
+    private void translateSentencesConcurrently(TranslationContext ctx, List<TranslationSentence> sentences) {
+        if (ObjectUtils.isEmpty(sentences)) {
+            return;
+        }
+        List<CompletableFuture<Void>> futures = sentences.stream()
+                .map(sent -> CompletableFuture.runAsync(() -> translateOne(ctx, sent, null), translationExecutor))
+                .collect(Collectors.toList());
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+    }
 
+    /**
+     * 翻译单个句子并写回（含术语 / RAG 注入、可选审校建议重翻、可选记忆写入）。
+     *
+     * @param advice 审校建议，初翻译传 null；反馈优化重翻时传上一轮建议
+     */
+    private void translateOne(TranslationContext ctx, TranslationSentence sent, String advice) {
+        String glossaryRules = ctx.enableGlossary
+                ? mergeGlossary(glossaryService.buildGlossaryRules(ctx.customerId, sent.getOriginalText()), ctx.tempGlossary)
+                : "";
+        String ragContext = ctx.enableHistory
+                ? ragService.buildRagContext(sent.getOriginalText(), ctx.customerId,
+                ctx.ragRole, ctx.ragStyle, ctx.sourceLang, ctx.targetLang)
+                : "";
+
+        String translated = translationAgent.translate(AgentContext.builder()
+                .text(sent.getOriginalText())
+                .sourceLang(ctx.sourceLang)
+                .targetLang(ctx.targetLang)
+                .role(ctx.roleDesc)
+                .style(ctx.styleDesc)
+                .glossaryRules(glossaryRules)
+                .ragContext(ragContext)
+                .reviewAdvice(advice)
+                .modelCode(ctx.translateModel)
+                .build());
+
+        sent.setTranslatedText(translated);
+        translationTaskService.updateSentence(sent);
+
+        if (ctx.enableHistory) {
+            ragService.saveMemory(sent.getOriginalText(), translated, ctx.customerId,
+                    ctx.ragRole, ctx.ragStyle, ctx.sourceLang, ctx.targetLang);
+        }
+    }
+
+    /**
+     * AI 审校循环（V1 模块五 / 六）：逐段评分，低于 {@value #PASS_SCORE} 分的段带建议重翻，最多 {@value #MAX_ROUND} 轮。
+     */
+    private void reviewLoop(TranslationContext ctx) {
         for (int round = 1; round <= MAX_ROUND; round++) {
-            translationTaskService.transit(taskId, null, TaskStatus.REVIEWING);
-            List<TranslationSentence> segs = translationTaskService.listSentences(taskId);
+            translationTaskService.transit(ctx.taskId, null, TaskStatus.REVIEWING);
+            List<TranslationSentence> segs = translationTaskService.listSentences(ctx.taskId);
 
-            ReviewResult result = reviewLlmService.review(segs, requirement, sourceLang, targetLang, reviewModel);
+            ReviewResult result = reviewAgent.review(segs, ctx.requirement, ctx.sourceLang, ctx.targetLang, ctx.reviewModel);
             Map<Integer, ReviewResult.SegmentReview> reviewByOrder = new HashMap<>();
             for (ReviewResult.SegmentReview r : result.segments()) {
                 reviewByOrder.put(r.orderNo(), r);
@@ -156,34 +197,70 @@ public class TranslationPipeline {
                     flagged.add(seg);
                 }
             }
-            translationTaskService.saveReviewMeta(taskId, minScore, round);
+            translationTaskService.saveReviewMeta(ctx.taskId, minScore, round);
 
             if (ObjectUtils.isEmpty(flagged)) {
                 break;
             }
 
-            for (TranslationSentence seg : flagged) {
-                String glossaryRules = enableGlossary
-                        ? mergeGlossary(glossaryService.buildGlossaryRules(task.getCustomerId(), seg.getOriginalText()), tempGlossary)
-                        : "";
-                String ragContext = enableHistory
-                        ? ragService.buildRagContext(seg.getOriginalText(), task.getCustomerId(), RAG_ROLE,
-                            ObjectUtils.isEmpty(task.getTargetLang()) ? "" : task.getTargetLang())
-                        : "";
-                String retranslated = translationLlmService.translate(seg.getOriginalText(), null, null,
-                        sourceLang, targetLang, glossaryRules, ragContext, seg.getReviewAdvice(), translateModel);
-                seg.setTranslatedText(retranslated);
-                translationTaskService.updateSentence(seg);
-            }
+            // 带审校建议并发重翻被标记段（反馈优化 Agent）
+            List<CompletableFuture<Void>> futures = flagged.stream()
+                    .map(seg -> CompletableFuture.runAsync(
+                            () -> translateOne(ctx, seg, seg.getReviewAdvice()), translationExecutor))
+                    .collect(Collectors.toList());
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
+        translationTaskService.transit(ctx.taskId, null, TaskStatus.REVIEW_DONE);
+    }
 
-        List<TranslationSentence> finalSegs = translationTaskService.listSentences(taskId);
-        for (TranslationSentence seg : finalSegs) {
-            seg.setReviewedText(seg.getTranslatedText());
+    /**
+     * 收尾：可选全文风格统一（V1 模块七），并把译文写入 reviewedText 作为人工审校初值。
+     */
+    private void finalizeTranslation(TranslationContext ctx) {
+        List<TranslationSentence> segs = translationTaskService.listSentences(ctx.taskId);
+        Map<Integer, String> unified = ctx.enableSummary
+                ? summaryAgent.unify(segs, ctx.requirement, ctx.sourceLang, ctx.targetLang, ctx.translateModel)
+                : Map.of();
+        for (TranslationSentence seg : segs) {
+            String reviewed = ctx.enableSummary
+                    ? unified.getOrDefault(seg.getOrderNo(), seg.getTranslatedText())
+                    : seg.getTranslatedText();
+            seg.setReviewedText(reviewed);
             translationTaskService.updateSentence(seg);
         }
-        translationTaskService.transit(taskId, null, TaskStatus.REVIEW_DONE);
-        translationTaskService.transit(taskId, null, TaskStatus.MANUAL_REVIEW);
+    }
+
+    private TranslationContext buildContext(TranslationTask task) {
+        Project project = task.getProjectId() == null ? null : projectMapper.selectById(task.getProjectId());
+
+        TranslationContext ctx = new TranslationContext();
+        ctx.taskId = task.getId();
+        ctx.customerId = task.getCustomerId();
+        ctx.sourceLang = task.getSourceLang();
+        ctx.targetLang = task.getTargetLang();
+        ctx.requirement = task.getRequirement();
+        ctx.translateModel = task.getTranslateModel();
+        ctx.reviewModel = task.getReviewModel();
+        ctx.enableGlossary = isTrue(task.getEnableGlossary());
+        ctx.enableHistory = isTrue(task.getEnableHistory());
+        ctx.enableReview = isTrue(task.getEnableReview());
+        ctx.enableSummary = isTrue(task.getEnableSummary());
+
+        String roleCode = project == null ? null : project.getRole();
+        String styleCode = project == null ? null : project.getStyle();
+        TranslationRole role = TranslationRole.fromCode(roleCode);
+        TranslationStyle style = TranslationStyle.fromCode(styleCode);
+        ctx.roleDesc = role == null ? null : role.getDescription();
+        ctx.styleDesc = style == null ? null : style.getDescription();
+        // RAG 记忆维度用 role/style 的 code，与人工完成后写入记忆保持一致
+        ctx.ragRole = ObjectUtils.isEmpty(roleCode) ? "" : roleCode;
+        ctx.ragStyle = ObjectUtils.isEmpty(styleCode) ? "" : styleCode;
+        ctx.tempGlossary = ctx.enableGlossary ? buildTempGlossary(task.getId()) : "";
+        return ctx;
+    }
+
+    private boolean isTrue(Boolean value) {
+        return !ObjectUtils.isEmpty(value) && value;
     }
 
     private String buildTempGlossary(Long taskId) {
@@ -206,5 +283,27 @@ public class TranslationPipeline {
             parts.add(tempRules);
         }
         return String.join("\n", parts);
+    }
+
+    /**
+     * 一次翻译运行的上下文快照，避免在并发翻译中反复读取任务 / 项目配置。
+     */
+    private static class TranslationContext {
+        private Long taskId;
+        private Long customerId;
+        private String sourceLang;
+        private String targetLang;
+        private String requirement;
+        private String translateModel;
+        private String reviewModel;
+        private String roleDesc;
+        private String styleDesc;
+        private String ragRole;
+        private String ragStyle;
+        private String tempGlossary;
+        private boolean enableGlossary;
+        private boolean enableHistory;
+        private boolean enableReview;
+        private boolean enableSummary;
     }
 }

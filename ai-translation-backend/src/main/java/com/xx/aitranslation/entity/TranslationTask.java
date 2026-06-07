@@ -40,6 +40,9 @@ public class TranslationTask {
     /** 目标语言 code */
     private String targetLang;
 
+    /** 解析拆分粒度，存 {@link com.xx.aitranslation.enums.ParseGranularity} 的 name()（SENTENCE/PARAGRAPH） */
+    private String parseGranularity;
+
     /** 是否启用术语库 */
     private Boolean enableGlossary;
 
@@ -54,6 +57,9 @@ public class TranslationTask {
 
     /** 审校使用的模型 code */
     private String reviewModel;
+
+    /** 是否启用全文风格统一（汇总 Agent，V1 模块七） */
+    private Boolean enableSummary;
 
     /** 审校综合评分 */
     private Integer reviewScore;
