@@ -12,7 +12,8 @@ public enum ModelCode {
     QWEN_PLUS("qwen-plus", Provider.DASHSCOPE),
     QWEN_MAX("qwen-max", Provider.DASHSCOPE),
     QWEN_TURBO("qwen-turbo", Provider.DASHSCOPE),
-    DEEPSEEK_CHAT("deepseek-chat", Provider.DEEPSEEK);
+    DEEPSEEK_V4_FLASH("deepseek-v4-flash", Provider.DEEPSEEK),
+    DEEPSEEK_V4_PRO("deepseek-v4-pro", Provider.DEEPSEEK);
 
     /**
      * 模型服务商：决定路由到哪个 ChatModel。

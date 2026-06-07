@@ -13,6 +13,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   ai:
+    default-model: qwen-plus
     # ===================== 大模型配置（OpenAI 兼容 / DashScope 兼容模式） =====================
     openai:
       api-key: ${DASHSCOPE_API_KEY:your-dashscope-api-key}
@@ -31,7 +32,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:your-deepseek-api-key}
       chat:
         options:
-          model: deepseek-chat
+          model: deepseek-v4-flash
 
   mvc:
     async:

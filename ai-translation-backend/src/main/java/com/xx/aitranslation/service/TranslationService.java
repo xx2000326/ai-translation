@@ -10,6 +10,7 @@ import com.xx.aitranslation.enums.TranslationRole;
 import com.xx.aitranslation.enums.TranslationStyle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
@@ -30,6 +31,10 @@ public class TranslationService {
     private final HistoryService historyService;
     private final CustomerService customerService;
     private final TranslationAgent translationAgent;
+
+    /** 默认翻译模型名，从配置文件 spring.ai.default-model 读取 */
+    @Value("${spring.ai.default-model:qwen-plus}")
+    private String defaultModel;
 
     public TranslateResponse translate(TranslateRequest request) {
         if (ObjectUtils.isEmpty(request.getText())) {
@@ -55,6 +60,7 @@ public class TranslationService {
                     .style(style.getDescription())
                     .glossaryRules(glossary)
                     .ragContext(ragContext)
+                    .modelCode(defaultModel)
                     .build();
             translatedText = translationAgent.translate(context);
         } catch (Exception e) {
