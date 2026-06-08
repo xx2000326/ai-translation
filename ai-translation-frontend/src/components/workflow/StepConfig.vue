@@ -10,12 +10,28 @@ const props = defineProps({
 })
 const emit = defineEmits(['next'])
 
+// 文档拆分策略（与拆分引擎 ChunkStrategyType 对齐）
+const STRATEGY_LABELS = {
+  AUTO: '自动选择（按文件类型）',
+  FIXED_SIZE: '固定长度',
+  PARAGRAPH: '按段落',
+  SENTENCE: '按句子',
+  MARKDOWN: '按 Markdown 标题',
+  TITLE: '按标题层级（Word/PDF）',
+  HIERARCHICAL: '父子层级（超大文件）'
+}
+const ACCEPT = '.txt,.text,.md,.markdown,.html,.htm,.pdf,.doc,.docx'
+
 const form = ref({
   requirement: props.task.requirement || '',
   description: props.task.description || '',
   sourceLang: props.task.sourceLang || undefined,
   targetLang: props.task.targetLang || undefined,
-  parseGranularity: props.task.parseGranularity || 'SENTENCE',
+  chunkStrategy: props.task.chunkStrategy || 'AUTO',
+  chunkSize: props.task.chunkSize || 1000,
+  overlap: props.task.chunkOverlap || 100,
+  parentSize: props.task.chunkParentSize || 5000,
+  childSize: props.task.chunkChildSize || 1000,
   enableGlossary: !!props.task.enableGlossary,
   enableHistory: !!props.task.enableHistory,
   translateModel: props.task.translateModel || undefined,
@@ -26,11 +42,32 @@ const form = ref({
 
 const langOptions = computed(() => store.languages.map((l) => ({ value: l.code, label: l.label })))
 const modelOptions = computed(() => store.models.map((m) => ({ value: m, label: m })))
-const granularityOptions = [
-  { value: 'SENTENCE', label: '按句拆分（逐句翻译，更细粒度）' },
-  { value: 'PARAGRAPH', label: '按段拆分（整段翻译，保持上下文）' },
-  { value: 'STRUCTURE', label: '高级拆分（按文档结构，保留章节层级）' }
-]
+
+// 拆分策略下拉项（含 AUTO，其余由后端返回）
+const strategyOptions = ref([{ value: 'AUTO', label: STRATEGY_LABELS.AUTO }])
+
+async function loadStrategies() {
+  try {
+    const names = await api.getChunkStrategies()
+    strategyOptions.value = [
+      { value: 'AUTO', label: STRATEGY_LABELS.AUTO },
+      ...names.map((n) => ({ value: n, label: STRATEGY_LABELS[n] || n }))
+    ]
+  } catch (e) {
+    message.error(e.message)
+  }
+}
+
+// 单块字符数：仅固定长度策略生效
+const showChunkSize = computed(() => form.value.chunkStrategy === 'FIXED_SIZE')
+// 重叠字符数：固定长度 + 父子层级（含自动，可能命中超大文件层级拆分）生效
+const showOverlap = computed(() =>
+  ['FIXED_SIZE', 'HIERARCHICAL', 'AUTO'].includes(form.value.chunkStrategy)
+)
+// 父块/子块字符数：父子层级（含自动）生效
+const showHierarchicalParams = computed(
+  () => form.value.chunkStrategy === 'AUTO' || form.value.chunkStrategy === 'HIERARCHICAL'
+)
 
 // 上传文件
 const uploadedFileName = ref(props.task.sourceFileName || '')
@@ -119,7 +156,11 @@ async function saveAndParse() {
       description: form.value.description,
       sourceLang: form.value.sourceLang,
       targetLang: form.value.targetLang,
-      parseGranularity: form.value.parseGranularity,
+      chunkStrategy: form.value.chunkStrategy,
+      chunkSize: form.value.chunkSize,
+      overlap: form.value.overlap,
+      parentSize: form.value.parentSize,
+      childSize: form.value.childSize,
       enableGlossary: form.value.enableGlossary,
       enableHistory: form.value.enableHistory,
       translateModel: form.value.translateModel,
@@ -142,7 +183,10 @@ async function saveAndParse() {
   }
 }
 
-onMounted(loadGlossary)
+onMounted(() => {
+  loadGlossary()
+  loadStrategies()
+})
 </script>
 
 <template>
@@ -169,15 +213,57 @@ onMounted(loadGlossary)
                 </a-form-item>
               </a-col>
             </a-row>
-            <a-form-item label="拆分粒度">
-              <a-radio-group v-model:value="form.parseGranularity" option-type="button" button-style="solid">
-                <a-radio-button v-for="g in granularityOptions" :key="g.value" :value="g.value">
-                  {{ g.label }}
-                </a-radio-button>
-              </a-radio-group>
-              <div v-if="form.parseGranularity === 'STRUCTURE'" style="margin-top: 6px">
+            <a-form-item label="拆分方式">
+              <a-row :gutter="12">
+                <a-col :span="12">
+                  <a-select
+                    v-model:value="form.chunkStrategy"
+                    :options="strategyOptions"
+                    placeholder="选择拆分方式"
+                  />
+                </a-col>
+                <a-col v-if="showChunkSize" :span="12">
+                  <a-input-number
+                    v-model:value="form.chunkSize"
+                    :min="100"
+                    :step="100"
+                    addon-before="单块字符数"
+                    style="width: 100%"
+                  />
+                </a-col>
+              </a-row>
+              <a-row v-if="showHierarchicalParams || showOverlap" :gutter="12" style="margin-top: 10px">
+                <a-col v-if="showHierarchicalParams" :span="8">
+                  <a-input-number
+                    v-model:value="form.parentSize"
+                    :min="500"
+                    :step="500"
+                    addon-before="父块"
+                    style="width: 100%"
+                  />
+                </a-col>
+                <a-col v-if="showHierarchicalParams" :span="8">
+                  <a-input-number
+                    v-model:value="form.childSize"
+                    :min="100"
+                    :step="100"
+                    addon-before="子块"
+                    style="width: 100%"
+                  />
+                </a-col>
+                <a-col v-if="showOverlap" :span="8">
+                  <a-input-number
+                    v-model:value="form.overlap"
+                    :min="0"
+                    :step="50"
+                    addon-before="重叠"
+                    style="width: 100%"
+                  />
+                </a-col>
+              </a-row>
+              <div style="margin-top: 6px">
                 <a-typography-text type="secondary" style="font-size: 12px">
-                  按「第X章 / 第X节 / 1 / 1.1 / 1.1.1」识别章节，以最小章节为翻译单元，超长章节自动按段切分。结构识别目前对 DOCX 效果最佳。
+                  按所选策略将文档拆分为翻译单元，整块送翻以保留上下文。父子层级取最细粒度子块；自动选择会按文件类型与篇幅智能匹配策略。
                 </a-typography-text>
               </div>
             </a-form-item>
@@ -224,10 +310,10 @@ onMounted(loadGlossary)
         </a-card>
 
         <a-card title="待翻译文件" size="small" style="margin-top: 16px">
-          <a-upload :before-upload="beforeUpload" :show-upload-list="false" accept=".txt,.docx,.html">
+          <a-upload :before-upload="beforeUpload" :show-upload-list="false" :accept="ACCEPT">
             <a-button :loading="uploading">
               <template #icon><UploadOutlined /></template>
-              选择文件（.txt / .docx / .html）
+              选择文件（TXT / Markdown / HTML / PDF / Word）
             </a-button>
           </a-upload>
           <div v-if="uploadedFileName" style="margin-top: 10px">

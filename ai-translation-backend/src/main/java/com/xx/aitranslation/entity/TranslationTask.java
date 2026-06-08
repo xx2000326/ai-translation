@@ -43,8 +43,27 @@ public class TranslationTask {
     /** 目标语言 code */
     private String targetLang;
 
-    /** 解析拆分粒度，存 {@link com.xx.aitranslation.enums.ParseGranularity} 的 name()（SENTENCE/PARAGRAPH/STRUCTURE） */
+    /**
+     * 解析拆分粒度（已废弃，保留兼容历史数据）。
+     * @deprecated 工作流解析已改用文档拆分引擎，改由 {@link #chunkStrategy} 等字段控制。
+     */
+    @Deprecated
     private String parseGranularity;
+
+    /** 文档拆分策略，存 {@link com.xx.aitranslation.service.chunk.config.ChunkStrategyType} 的 name()，AUTO 表示自动选择 */
+    private String chunkStrategy;
+
+    /** 固定长度策略：单块字符数 */
+    private Integer chunkSize;
+
+    /** 相邻块重叠字符数 */
+    private Integer chunkOverlap;
+
+    /** 层级策略：父块字符数 */
+    private Integer chunkParentSize;
+
+    /** 层级策略：子块字符数 */
+    private Integer chunkChildSize;
 
     /** 是否启用术语库 */
     private Boolean enableGlossary;

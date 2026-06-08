@@ -68,6 +68,28 @@
             <version>5.3.0</version>
         </dependency>
 
+        <!-- ===================== 文档拆分引擎：Spring AI 文档读取器 ===================== -->
+        <!-- PDF：基于 PDFBox 的分页/段落读取 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-pdf-document-reader</artifactId>
+        </dependency>
+        <!-- Office（DOC/DOCX/PPT/PPTX 等）：基于 Apache Tika 抽取文本 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-tika-document-reader</artifactId>
+        </dependency>
+        <!-- Markdown：结构化读取（保留备用，当前拆分引擎按原始文本读取以保留标题） -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-markdown-document-reader</artifactId>
+        </dependency>
+        <!-- HTML：基于 Jsoup 抽取正文文本 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-jsoup-document-reader</artifactId>
+        </dependency>
+
         <!-- Okapi：TXT / HTML 解析（参考 yunshu-parser） -->
         <dependency>
             <groupId>net.sf.okapi.filters</groupId>

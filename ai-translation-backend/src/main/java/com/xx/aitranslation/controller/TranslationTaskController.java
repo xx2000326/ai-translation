@@ -13,9 +13,9 @@ import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.ExportFormat;
-import com.xx.aitranslation.enums.FileType;
 import com.xx.aitranslation.enums.TaskStatus;
 import com.xx.aitranslation.service.DocumentParseService;
+import com.xx.aitranslation.service.chunk.config.ChunkFileType;
 import com.xx.aitranslation.service.TranslationTaskService;
 import com.xx.aitranslation.service.export.DocumentExporter;
 import com.xx.aitranslation.service.export.DocumentExporterFactory;
@@ -81,7 +81,7 @@ public class TranslationTaskController {
             throw new BizException("file.empty");
         }
         String fileName = file.getOriginalFilename();
-        FileType fileType = FileType.fromFileName(fileName);
+        ChunkFileType fileType = ChunkFileType.fromFileName(fileName);
         try {
             String key = fileStorageService.upload(file.getInputStream(), fileName, file.getContentType());
             translationTaskService.saveFile(id, fileName, key, fileType.name());

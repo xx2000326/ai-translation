@@ -10,6 +10,7 @@ import com.xx.aitranslation.entity.Project;
 import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
+import com.xx.aitranslation.enums.ProgressPhase;
 import com.xx.aitranslation.enums.FileType;
 import com.xx.aitranslation.enums.ParseGranularity;
 import com.xx.aitranslation.enums.TaskStatus;
@@ -21,7 +22,11 @@ import com.xx.aitranslation.service.DocumentParseService;
 import com.xx.aitranslation.service.GlossaryService;
 import com.xx.aitranslation.service.RagService;
 import com.xx.aitranslation.service.TranslationTaskService;
-import com.xx.aitranslation.service.parse.DocumentParserFactory;
+import com.xx.aitranslation.service.chunk.ChunkEngine;
+import com.xx.aitranslation.service.chunk.ChunkParseAdapter;
+import com.xx.aitranslation.service.chunk.config.ChunkConfig;
+import com.xx.aitranslation.service.chunk.config.ChunkStrategyType;
+import com.xx.aitranslation.service.chunk.model.ChunkResult;
 import com.xx.aitranslation.service.parse.ParsedDocument;
 import com.xx.aitranslation.service.storage.FileStorageService;
 import lombok.RequiredArgsConstructor;
@@ -57,7 +62,8 @@ public class TranslationPipeline {
     private final TranslationTaskService translationTaskService;
     private final DocumentParseService documentParseService;
     private final FileStorageService fileStorageService;
-    private final DocumentParserFactory parserFactory;
+    private final ChunkEngine chunkEngine;
+    private final ChunkParseAdapter chunkParseAdapter;
     private final ProjectMapper projectMapper;
     private final TranslationAgent translationAgent;
     private final ReviewAgent reviewAgent;
@@ -67,19 +73,19 @@ public class TranslationPipeline {
     private final SentenceTranslationQueue sentenceTranslationQueue;
 
     /**
-     * 异步解析：下载源文件 → 调用解析器 → 落库 → 状态置 PARSED。
+     * 异步解析：下载源文件 → 文档拆分引擎拆分 → 映射为翻译单元落库 → 状态置 PARSED。
      */
     @Async("taskExecutor")
     public void parseAsync(Long taskId) {
         translationTaskService.startParseStep(taskId);
         try {
             TranslationTask task = translationTaskService.getById(taskId);
-            FileType fileType = FileType.valueOf(task.getSourceFileType());
-            ParseGranularity granularity = ParseGranularity.fromCode(task.getParseGranularity());
-            ParsedDocument parsed;
+            ChunkConfig config = buildChunkConfig(task);
+            ChunkResult result;
             try (InputStream in = fileStorageService.download(task.getSourceFileKey())) {
-                parsed = parserFactory.get(fileType).parse(in, task.getSourceLang(), granularity);
+                result = chunkEngine.chunk(in, task.getSourceFileName(), config);
             }
+            ParsedDocument parsed = chunkParseAdapter.toParsedDocument(result);
             documentParseService.saveParsedDocument(taskId, task, parsed);
             translationTaskService.completeParseStep(taskId);
             translationTaskService.transit(taskId, TaskStatus.PARSING, TaskStatus.PARSED);
@@ -90,6 +96,27 @@ public class TranslationPipeline {
             log.error("文档解析失败, taskId={}", taskId, e);
             translationTaskService.fail(taskId, e.getMessage());
         }
+    }
+
+    /**
+     * 由任务配置构建拆分引擎配置；为空字段交由全局默认值兜底。
+     */
+    private ChunkConfig buildChunkConfig(TranslationTask task) {
+        ChunkConfig.ChunkConfigBuilder builder = ChunkConfig.builder()
+                .strategy(ChunkStrategyType.parse(task.getChunkStrategy()));
+        if (!ObjectUtils.isEmpty(task.getChunkSize())) {
+            builder.chunkSize(task.getChunkSize());
+        }
+        if (!ObjectUtils.isEmpty(task.getChunkOverlap())) {
+            builder.overlap(task.getChunkOverlap());
+        }
+        if (!ObjectUtils.isEmpty(task.getChunkParentSize())) {
+            builder.parentSize(task.getChunkParentSize());
+        }
+        if (!ObjectUtils.isEmpty(task.getChunkChildSize())) {
+            builder.childSize(task.getChunkChildSize());
+        }
+        return builder.build();
     }
 
     /**

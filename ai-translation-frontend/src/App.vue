@@ -6,7 +6,8 @@ import {
   ProjectOutlined,
   TeamOutlined,
   ProfileOutlined,
-  HistoryOutlined
+  HistoryOutlined,
+  ScissorOutlined
 } from '@ant-design/icons-vue'
 import { store } from './store.js'
 import TranslatePanel from './components/TranslatePanel.vue'
@@ -14,6 +15,7 @@ import ProjectsPanel from './components/ProjectsPanel.vue'
 import CustomersPanel from './components/CustomersPanel.vue'
 import GlossaryPanel from './components/GlossaryPanel.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
+import ChunkPanel from './components/ChunkPanel.vue'
 
 const collapsed = ref(false)
 const selectedKeys = ref(['translate'])
@@ -21,6 +23,7 @@ const selectedKeys = ref(['translate'])
 const menuItems = [
   { key: 'translate', icon: () => h(TranslationOutlined), label: '快速翻译' },
   { key: 'projects', icon: () => h(ProjectOutlined), label: '翻译项目' },
+  { key: 'chunk', icon: () => h(ScissorOutlined), label: '文档拆分' },
   { key: 'customers', icon: () => h(TeamOutlined), label: '客户管理' },
   { key: 'glossary', icon: () => h(ProfileOutlined), label: '术语库' },
   { key: 'history', icon: () => h(HistoryOutlined), label: '翻译历史' }
@@ -106,6 +109,7 @@ onMounted(async () => {
           <div class="content-wrap">
             <TranslatePanel v-if="activeMenu === 'translate'" />
             <ProjectsPanel v-else-if="activeMenu === 'projects'" />
+            <ChunkPanel v-else-if="activeMenu === 'chunk'" />
             <CustomersPanel v-else-if="activeMenu === 'customers'" />
             <GlossaryPanel v-else-if="activeMenu === 'glossary'" />
             <HistoryPanel v-else-if="activeMenu === 'history'" />

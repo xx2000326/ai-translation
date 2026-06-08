@@ -8,6 +8,8 @@ import com.xx.aitranslation.entity.Project;
 import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
+import com.xx.aitranslation.enums.ProgressPhase;
+import com.xx.aitranslation.enums.ReviewSubPhase;
 import com.xx.aitranslation.enums.ParseGranularity;
 import com.xx.aitranslation.enums.TaskStatus;
 import com.xx.aitranslation.enums.TaskStepCode;
@@ -145,7 +147,11 @@ public class TranslationTaskService {
         task.setReviewModel(DEFAULT_REVIEW_MODEL);
         task.setSourceLang(DEFAULT_SOURCE_LANG);
         task.setTargetLang(DEFAULT_TARGET_LANG);
-        task.setParseGranularity(ParseGranularity.SENTENCE.name());
+        task.setChunkStrategy("AUTO");
+        task.setChunkSize(1000);
+        task.setChunkOverlap(100);
+        task.setChunkParentSize(5000);
+        task.setChunkChildSize(1000);
         task.setEnableHistory(false);
         task.setEnableReview(false);
         task.setEnableSummary(false);
@@ -168,8 +174,20 @@ public class TranslationTaskService {
         if (!ObjectUtils.isEmpty(req.getTargetLang())) {
             task.setTargetLang(req.getTargetLang());
         }
-        if (!ObjectUtils.isEmpty(req.getParseGranularity())) {
-            task.setParseGranularity(req.getParseGranularity());
+        if (!ObjectUtils.isEmpty(req.getChunkStrategy())) {
+            task.setChunkStrategy(req.getChunkStrategy());
+        }
+        if (!ObjectUtils.isEmpty(req.getChunkSize())) {
+            task.setChunkSize(req.getChunkSize());
+        }
+        if (!ObjectUtils.isEmpty(req.getOverlap())) {
+            task.setChunkOverlap(req.getOverlap());
+        }
+        if (!ObjectUtils.isEmpty(req.getParentSize())) {
+            task.setChunkParentSize(req.getParentSize());
+        }
+        if (!ObjectUtils.isEmpty(req.getChildSize())) {
+            task.setChunkChildSize(req.getChildSize());
         }
         if (!ObjectUtils.isEmpty(req.getTranslateModel())) {
             task.setTranslateModel(req.getTranslateModel());

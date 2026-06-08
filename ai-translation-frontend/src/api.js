@@ -65,5 +65,9 @@ export const api = {
   saveSentenceFinal: (taskId, sentenceId, payload) => http.put(`/tasks/${taskId}/sentences/${sentenceId}/final`, payload),
   completeTask: (id) => http.post(`/tasks/${id}/complete`),
   getModels: () => http.get('/models'),
-  getLanguages: () => http.get('/languages')
+  getLanguages: () => http.get('/languages'),
+
+  // 文档拆分预览
+  getChunkStrategies: () => http.get('/chunk/strategies'),
+  previewChunk: (formData) => http.post('/chunk/preview', formData)
 }
