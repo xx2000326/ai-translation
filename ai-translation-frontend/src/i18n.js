@@ -29,7 +29,20 @@ const LOCALES = {
     'taskStep.translate.enableReview': 'AI 审校',
     'taskStep.translate.reviewModel': '审校模型',
     'taskStep.translate.start': '开始 AI 翻译',
-    'taskStep.translate.started': '已开始 AI 翻译'
+    'taskStep.translate.started': '已开始 AI 翻译',
+    'taskStep.translate.retranslate': '重新翻译',
+    'taskStep.translate.retranslate.confirm': '确认重新翻译',
+    'taskStep.translate.retranslate.warning': '重新翻译将清空当前所有机翻、AI 审校与人工修订结果，并按新配置全量重译，操作不可撤销。',
+    'review.toolbar.hint': '左侧原文 · 右侧译文（可编辑）。滚动或悬停左侧，右侧对应段会自动高亮。',
+    'review.saveAll': '保存全部',
+    'review.confirmComplete': '确认完成',
+    'review.original': '原文',
+    'review.translation': '译文',
+    'review.score': '评分',
+    'review.advice': '审校建议',
+    'review.saveSegment': '保存本段',
+    'review.savedAll': '全部译文已保存',
+    'review.taskCompleted': '任务已完成'
   },
   en: {
     'translation.progress.title': 'Translation',
@@ -61,7 +74,20 @@ const LOCALES = {
     'taskStep.translate.enableReview': 'AI review',
     'taskStep.translate.reviewModel': 'Review model',
     'taskStep.translate.start': 'Start AI translation',
-    'taskStep.translate.started': 'AI translation started'
+    'taskStep.translate.started': 'AI translation started',
+    'taskStep.translate.retranslate': 'Re-translate',
+    'taskStep.translate.retranslate.confirm': 'Confirm re-translate',
+    'taskStep.translate.retranslate.warning': 'Re-translating will clear all current machine translations, AI review and manual edits, and fully re-translate with the new settings. This cannot be undone.',
+    'review.toolbar.hint': 'Source on the left · editable translation on the right. Scroll or hover the left side to highlight the matching segment.',
+    'review.saveAll': 'Save all',
+    'review.confirmComplete': 'Confirm complete',
+    'review.original': 'Source',
+    'review.translation': 'Translation',
+    'review.score': 'Score',
+    'review.advice': 'Review advice',
+    'review.saveSegment': 'Save segment',
+    'review.savedAll': 'All translations saved',
+    'review.taskCompleted': 'Task completed'
   }
 }
 

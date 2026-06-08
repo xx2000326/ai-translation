@@ -51,6 +51,7 @@ public class TranslationAgent {
         params.put("glossary", ObjectUtils.isEmpty(ctx.getGlossaryRules()) ? EMPTY_PLACEHOLDER : ctx.getGlossaryRules());
         params.put("ragContext", ObjectUtils.isEmpty(ctx.getRagContext()) ? EMPTY_PLACEHOLDER : ctx.getRagContext());
         params.put("advice", ObjectUtils.isEmpty(ctx.getReviewAdvice()) ? EMPTY_PLACEHOLDER : ctx.getReviewAdvice());
+        params.put("contextPrefix", ObjectUtils.isEmpty(ctx.getContextPrefix()) ? EMPTY_PLACEHOLDER : ctx.getContextPrefix());
         params.put("languageInstruction", buildLanguageInstruction(ctx.getSourceLang(), ctx.getTargetLang()));
         params.put("inputText", ctx.getText());
 

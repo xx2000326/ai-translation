@@ -185,6 +185,13 @@ function onStepClick(e) {
   }
 }
 
+// 人工审校页发起重新翻译：刷新任务并回到「AI 翻译」步骤展示重译进度
+async function onRetranslate() {
+  hasAutoAdvancedToReview.value = false
+  await refreshTask()
+  activeStep.value = 2
+}
+
 onMounted(async () => {
   loading.value = true
   await refreshTask()
@@ -248,7 +255,7 @@ onUnmounted(stopPolling)
           <StepConfig v-if="activeStep === 0" :task="task" @next="onStepNext" />
           <StepParse v-else-if="activeStep === 1" :task="task" @next="onStepNext" />
           <StepTranslate v-else-if="activeStep === 2" :task="task" @next="onStepNext" />
-          <StepReview v-else-if="activeStep === 3" :task="task" @done="onStepNext" />
+          <StepReview v-else-if="activeStep === 3" :task="task" @done="onStepNext" @retranslate="onRetranslate" />
           <StepExport v-else-if="activeStep === 4" :task="task" />
         </div>
       </a-spin>

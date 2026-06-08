@@ -108,6 +108,22 @@ public class TextSplitSupport {
     }
 
     /**
+     * 取文本结尾的若干完整句子作为下文衔接上下文，累计长度达到 {@code minChars} 即止（保持原顺序）。
+     * <p>
+     * 供翻译流程构建“上文参考”使用：以前一翻译单元结尾的完整句子作为当前单元的语境上文。
+     *
+     * @param text     源文本，可为空
+     * @param minChars 参考字符数
+     * @return 结尾完整句子拼接文本；无内容时返回空串
+     */
+    public String tailContext(String text, int minChars) {
+        if (ObjectUtils.isEmpty(text) || minChars <= 0) {
+            return "";
+        }
+        return trailingSentences(text, minChars);
+    }
+
+    /**
      * 取文本结尾的若干完整句子，累计长度达到 {@code minChars} 即止（保持原顺序）。
      */
     private String trailingSentences(String text, int minChars) {

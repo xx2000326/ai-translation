@@ -17,6 +17,9 @@ public class AgentContext {
     /** 待翻译原文 */
     private String text;
 
+    /** 上文参考（相邻块的 overlap 衔接内容，仅供理解语境，不翻译、不落库），可为空 */
+    private String contextPrefix;
+
     /** 源语言 code，可为空（空则自动识别） */
     private String sourceLang;
 

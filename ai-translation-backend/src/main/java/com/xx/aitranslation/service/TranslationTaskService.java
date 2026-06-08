@@ -102,6 +102,13 @@ public class TranslationTaskService {
         documentParseService.updateSentence(sentence);
     }
 
+    /**
+     * 清空任务下所有句子的机翻 / 审校 / 定稿结果，用于重新翻译前的全量复位（原文保留）。
+     */
+    public void resetTranslations(Long taskId) {
+        documentParseService.resetTranslations(taskId);
+    }
+
     public void saveFinal(Long sentenceId, String finalText) {
         documentParseService.saveFinal(sentenceId, finalText);
     }

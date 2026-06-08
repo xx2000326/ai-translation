@@ -35,6 +35,9 @@ public class ChunkParseAdapter {
     /** 父块预览文本最大长度（用于无标题的层级父块作为分组标识展示）。 */
     private static final int PARENT_PREVIEW_MAX = 40;
 
+    /** 判定相邻块为重叠（overlap）的最小重叠字符数，避免标点/短语造成的误判。 */
+    private static final int MIN_OVERLAP_CHARS = 12;
+
     public ParsedDocument toParsedDocument(ChunkResult result) {
         List<DocumentChunk> units = selectUnits(result);
         boolean structural = !ObjectUtils.isEmpty(result.getStrategy()) && STRUCTURAL.contains(result.getStrategy());
@@ -43,9 +46,17 @@ public class ChunkParseAdapter {
 
         List<ParsedParagraph> paragraphs = new ArrayList<>(units.size());
         int orderNo = 0;
+        // 上一单元的原始内容（含其自身 overlap），用于检测并剔除当前块开头与之重叠的衔接内容。
+        String prevRaw = null;
         for (DocumentChunk chunk : units) {
-            String content = ObjectUtils.isEmpty(chunk.getContent()) ? null : chunk.getContent();
-            if (content == null) {
+            String raw = ObjectUtils.isEmpty(chunk.getContent()) ? null : chunk.getContent();
+            if (raw == null) {
+                continue;
+            }
+            // 去除块间 overlap 前缀：overlap 仅用于翻译时的上文衔接，不落库，避免原文/译文重复。
+            String content = stripOverlapPrefix(prevRaw, raw);
+            prevRaw = raw;
+            if (ObjectUtils.isEmpty(content)) {
                 continue;
             }
             ParsedSentence sentence = new ParsedSentence(0, chunk.getId(), content);
@@ -59,6 +70,26 @@ public class ChunkParseAdapter {
             orderNo++;
         }
         return new ParsedDocument(paragraphs);
+    }
+
+    /**
+     * 剔除当前块开头与上一块结尾重叠的衔接内容（取最长重叠并要求不小于 {@link #MIN_OVERLAP_CHARS}）。
+     *
+     * @param prev    上一单元原始内容，可为空
+     * @param current 当前单元原始内容
+     * @return 去除重叠前缀并去掉前导空白后的内容；无重叠时原样返回
+     */
+    private String stripOverlapPrefix(String prev, String current) {
+        if (ObjectUtils.isEmpty(prev) || ObjectUtils.isEmpty(current)) {
+            return current;
+        }
+        int max = Math.min(prev.length(), current.length());
+        for (int len = max; len >= MIN_OVERLAP_CHARS; len--) {
+            if (prev.regionMatches(prev.length() - len, current, 0, len)) {
+                return current.substring(len).stripLeading();
+            }
+        }
+        return current;
     }
 
     /**

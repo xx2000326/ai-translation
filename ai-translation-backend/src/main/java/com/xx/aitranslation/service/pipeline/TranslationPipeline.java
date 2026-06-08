@@ -24,6 +24,7 @@ import com.xx.aitranslation.service.chunk.ChunkParseAdapter;
 import com.xx.aitranslation.service.chunk.config.ChunkConfig;
 import com.xx.aitranslation.service.chunk.config.ChunkStrategyType;
 import com.xx.aitranslation.service.chunk.model.ChunkResult;
+import com.xx.aitranslation.service.chunk.support.TextSplitSupport;
 import com.xx.aitranslation.service.parse.ParsedDocument;
 import com.xx.aitranslation.service.storage.FileStorageService;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +56,8 @@ public class TranslationPipeline {
     private static final int PASS_SCORE = 80;
     /** 审校最大循环轮次，防止死循环 */
     private static final int MAX_ROUND = 3;
+    /** 构建“上文参考”时取前一翻译单元结尾的参考字符数。 */
+    private static final int CONTEXT_CHARS = 200;
 
     private final TranslationTaskService translationTaskService;
     private final DocumentParseService documentParseService;
@@ -68,6 +71,7 @@ public class TranslationPipeline {
     private final GlossaryService glossaryService;
     private final RagService ragService;
     private final SentenceTranslationQueue sentenceTranslationQueue;
+    private final TextSplitSupport textSplitSupport;
 
     /**
      * 异步解析：下载源文件 → 文档拆分引擎拆分 → 映射为翻译单元落库 → 状态置 PARSED。
@@ -125,7 +129,11 @@ public class TranslationPipeline {
             TranslationTask task = translationTaskService.getById(taskId);
             TranslationContext ctx = buildContext(task);
 
+            // 重新翻译场景：清空上一轮机翻 / 审校 / 定稿结果，确保全量重译、无脏数据（原文保留）。
+            translationTaskService.resetTranslations(taskId);
+
             List<TranslationSentence> sentences = translationTaskService.listSentences(taskId);
+            ctx.contextById = buildContextMap(sentences);
             translateSentencesConcurrently(ctx, sentences);
             translationTaskService.completeTranslateStep(taskId);
 
@@ -142,6 +150,30 @@ public class TranslationPipeline {
             log.error("AI 翻译失败, taskId={}", taskId, e);
             translationTaskService.fail(taskId, e.getMessage());
         }
+    }
+
+    /**
+     * 构建“上文参考”映射：每个句子的上文 = 文档顺序中前一句结尾的若干完整句子。
+     * <p>
+     * 块间 overlap 已在解析落库时剔除，原文连续；此处在翻译时把前一单元的衔接上文作为语境传给 AI，
+     * 既保留跨块连贯性，又不会产生重复译文。
+     */
+    private Map<Long, String> buildContextMap(List<TranslationSentence> sentences) {
+        Map<Long, String> contextById = new HashMap<>();
+        if (ObjectUtils.isEmpty(sentences)) {
+            return contextById;
+        }
+        String prevText = null;
+        for (TranslationSentence sent : sentences) {
+            if (!ObjectUtils.isEmpty(prevText)) {
+                String context = textSplitSupport.tailContext(prevText, CONTEXT_CHARS);
+                if (!ObjectUtils.isEmpty(context)) {
+                    contextById.put(sent.getId(), context);
+                }
+            }
+            prevText = sent.getOriginalText();
+        }
+        return contextById;
     }
 
     /**
@@ -167,8 +199,11 @@ public class TranslationPipeline {
                 ctx.ragRole, ctx.ragStyle, ctx.sourceLang, ctx.targetLang)
                 : "";
 
+        String contextPrefix = ObjectUtils.isEmpty(ctx.contextById) ? null : ctx.contextById.get(sent.getId());
+
         String translated = translationAgent.translate(AgentContext.builder()
                 .text(sent.getOriginalText())
+                .contextPrefix(contextPrefix)
                 .sourceLang(ctx.sourceLang)
                 .targetLang(ctx.targetLang)
                 .role(ctx.roleDesc)
@@ -370,6 +405,8 @@ public class TranslationPipeline {
         private String ragRole;
         private String ragStyle;
         private String tempGlossary;
+        /** 句子ID → 上文参考（前一翻译单元的衔接上文，仅作语境，不翻译）。 */
+        private Map<Long, String> contextById;
         private boolean enableGlossary;
         private boolean enableHistory;
         private boolean enableReview;
