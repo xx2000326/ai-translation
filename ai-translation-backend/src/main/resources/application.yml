@@ -68,6 +68,10 @@ app:
     queue-capacity: ${TRANSLATION_QUEUE_CAPACITY:16}
     # 每分钟 API 调用上限，0 表示不限制
     rate-limit-per-minute: ${TRANSLATION_RATE_LIMIT_PER_MINUTE:0}
+    summary:
+      batch-size: 15
+      overlap-sentences: 2
+      style-guide-max-samples: 80
 
   # ===================== 文件存储（源文件上传） =====================
   # type=local 时写本地磁盘（默认）；type=minio 时走 MinIO 对象存储

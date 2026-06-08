@@ -29,6 +29,9 @@ const RUNNING = ['TRANSLATING', 'TRANSLATED', 'REVIEWING', 'REVIEW_DONE']
 const isRunning = computed(() => RUNNING.includes(props.task.status))
 
 const statusText = computed(() => {
+  if (props.task.progressPhase === 'SUMMARY' && props.task.enableSummary) {
+    return t('summary.status.running')
+  }
   switch (props.task.status) {
     case 'TRANSLATING':
       return 'AI 翻译中…'
@@ -53,6 +56,42 @@ const TRANSLATE_DONE_STATUS = [
 const reviewEnabled = computed(() =>
   isRunning.value ? !!props.task.enableReview : !!form.value.enableReview
 )
+
+const summaryEnabled = computed(() => !!props.task.enableSummary)
+
+const summaryProgress = computed(() => {
+  if (!summaryEnabled.value) {
+    return null
+  }
+
+  const status = props.task.status
+  const phase = props.task.progressPhase || 'TRANSLATE'
+  const total = props.task.totalSentences || 0
+  const completed = props.task.completedSentences || 0
+
+  if (['MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'].includes(status)) {
+    return {
+      percent: 100,
+      barStatus: 'success',
+      label: t('summary.progress.done')
+    }
+  }
+
+  if (phase !== 'SUMMARY') {
+    return {
+      percent: 0,
+      barStatus: 'normal',
+      label: t('summary.progress.idle')
+    }
+  }
+
+  const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0
+  return {
+    percent,
+    barStatus: percent >= 100 ? 'success' : 'active',
+    label: total > 0 ? t('summary.progress', { completed, total }) : t('summary.progress.preparing')
+  }
+})
 
 const translationProgress = computed(() => {
   const status = props.task.status
@@ -97,14 +136,17 @@ const reviewProgress = computed(() => {
   }
 
   const status = props.task.status
+  const phase = props.task.progressPhase || 'TRANSLATE'
   const round = props.task.reviewRound || 1
   const subPhase = props.task.reviewSubPhase || 'SCORING'
   const total = props.task.totalSentences || 0
   const completed = props.task.completedSentences || 0
+  const reviewDone = phase === 'SUMMARY' ||
+    ['REVIEW_DONE', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'].includes(status)
 
-  const percent = computeReviewOverallPercent(status, round, subPhase, completed, total)
+  const percent = computeReviewOverallPercent(status, round, subPhase, completed, total, phase)
   const barStatus =
-    status === 'REVIEW_DONE'
+    reviewDone
       ? 'success'
       : status === 'REVIEWING'
         ? percent >= 100
@@ -115,8 +157,8 @@ const reviewProgress = computed(() => {
   return {
     percent,
     barStatus,
-    label: reviewProgressLabel(status, round, subPhase, completed, total, t),
-    steps: buildReviewStepItems(status, round, subPhase, t)
+    label: reviewProgressLabel(status, round, subPhase, completed, total, t, phase),
+    steps: buildReviewStepItems(status, round, subPhase, t, phase)
   }
 })
 
@@ -166,6 +208,15 @@ async function startTranslate() {
           :show-info="true"
         />
         <div class="translate-progress-label">{{ reviewProgress.label }}</div>
+      </div>
+      <div v-if="summaryProgress" class="progress-block">
+        <div class="progress-block-title">{{ t('summary.progress.title') }}</div>
+        <a-progress
+          :percent="summaryProgress.percent"
+          :status="summaryProgress.barStatus"
+          :show-info="true"
+        />
+        <div class="translate-progress-label">{{ summaryProgress.label }}</div>
       </div>
     </div>
 

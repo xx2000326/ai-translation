@@ -109,6 +109,9 @@ public class TranslationPipeline {
 
             finalizeTranslation(ctx);
             translationTaskService.transit(taskId, null, TaskStatus.MANUAL_REVIEW);
+            if (ctx.enableSummary) {
+                translationTaskService.markSummaryProgressDone(taskId);
+            }
         } catch (Exception e) {
             log.error("AI 翻译失败, taskId={}", taskId, e);
             translationTaskService.fail(taskId, e.getMessage());
@@ -217,16 +220,48 @@ public class TranslationPipeline {
      */
     private void finalizeTranslation(TranslationContext ctx) {
         List<TranslationSentence> segs = translationTaskService.listSentences(ctx.taskId);
-        Map<Integer, String> unified = ctx.enableSummary
-                ? summaryAgent.unify(segs, ctx.requirement, ctx.sourceLang, ctx.targetLang, ctx.translateModel)
-                : Map.of();
+        if (!ctx.enableSummary) {
+            for (TranslationSentence seg : segs) {
+                seg.setReviewedText(seg.getTranslatedText());
+                translationTaskService.updateSentence(seg);
+            }
+            return;
+        }
+
+        String glossary = ctx.enableGlossary
+                ? mergeGlossary(
+                glossaryService.buildGlossaryRules(ctx.customerId, concatOriginalTexts(segs)),
+                ctx.tempGlossary)
+                : ctx.tempGlossary;
+        int total = segs.size();
+        translationTaskService.initSummaryProgress(ctx.taskId, total);
+
+        Map<Integer, String> unified = summaryAgent.unify(
+                segs,
+                ctx.requirement,
+                ctx.sourceLang,
+                ctx.targetLang,
+                ctx.roleDesc,
+                ctx.styleDesc,
+                glossary,
+                ctx.translateModel,
+                completed -> translationTaskService.updateSummaryProgress(ctx.taskId, completed, total));
+
         for (TranslationSentence seg : segs) {
-            String reviewed = ctx.enableSummary
-                    ? unified.getOrDefault(seg.getOrderNo(), seg.getTranslatedText())
-                    : seg.getTranslatedText();
+            String reviewed = unified.getOrDefault(seg.getOrderNo(), seg.getTranslatedText());
             seg.setReviewedText(reviewed);
             translationTaskService.updateSentence(seg);
         }
+    }
+
+    private String concatOriginalTexts(List<TranslationSentence> segs) {
+        if (ObjectUtils.isEmpty(segs)) {
+            return "";
+        }
+        return segs.stream()
+                .map(TranslationSentence::getOriginalText)
+                .filter(t -> !ObjectUtils.isEmpty(t))
+                .collect(Collectors.joining("\n"));
     }
 
     private TranslationContext buildContext(TranslationTask task) {

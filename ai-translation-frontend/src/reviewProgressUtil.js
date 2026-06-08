@@ -14,8 +14,19 @@ export function fullyCompletedSegments(round, subPhase) {
   return (r - 1) * 2
 }
 
-export function computeReviewOverallPercent(status, round, subPhase, completed, total) {
-  if (status === 'REVIEW_DONE') {
+export function isReviewPhaseComplete(status, progressPhase) {
+  if (status === 'REVIEW_DONE' || status === 'MANUAL_REVIEW' || status === 'COMPLETED' || status === 'EXPORTED') {
+    return true
+  }
+  // 风格统一阶段说明 AI 审校已结束
+  if (progressPhase === 'SUMMARY') {
+    return true
+  }
+  return false
+}
+
+export function computeReviewOverallPercent(status, round, subPhase, completed, total, progressPhase) {
+  if (isReviewPhaseComplete(status, progressPhase)) {
     return 100
   }
   if (status !== 'REVIEWING') {
@@ -26,14 +37,15 @@ export function computeReviewOverallPercent(status, round, subPhase, completed, 
   return Math.min(100, Math.round(((base + currentPct) / TOTAL_SEGMENTS) * 100))
 }
 
-export function buildReviewStepItems(status, round, subPhase, t) {
+export function buildReviewStepItems(status, round, subPhase, t, progressPhase) {
+  const reviewDone = isReviewPhaseComplete(status, progressPhase)
   const current = status === 'REVIEWING' ? segmentIndex(round, subPhase) : TOTAL_SEGMENTS
   const items = []
   for (let i = 0; i < TOTAL_SEGMENTS; i++) {
     const segRound = Math.floor(i / 2) + 1
     const isRetranslate = i % 2 === 1
     let stepStatus = 'wait'
-    if (status === 'REVIEW_DONE' || i < current) {
+    if (reviewDone || i < current) {
       stepStatus = 'finish'
     } else if (status === 'REVIEWING' && i === current) {
       stepStatus = 'process'
@@ -43,7 +55,7 @@ export function buildReviewStepItems(status, round, subPhase, t) {
       : t('review.segment.scoring', { n: segRound })
     const skipped =
       isRetranslate &&
-      status === 'REVIEW_DONE' &&
+      reviewDone &&
       segRound === (round || 1) &&
       subPhase !== 'RETRANSLATE'
     items.push({ title, status: stepStatus, skipped })
@@ -51,9 +63,9 @@ export function buildReviewStepItems(status, round, subPhase, t) {
   return items
 }
 
-export function reviewProgressLabel(status, round, subPhase, completed, total, t) {
+export function reviewProgressLabel(status, round, subPhase, completed, total, t, progressPhase) {
   const r = round || 1
-  if (status === 'REVIEW_DONE') {
+  if (isReviewPhaseComplete(status, progressPhase)) {
     return t('review.progress.done', { rounds: r })
   }
   if (status !== 'REVIEWING') {

@@ -9,5 +9,8 @@ public enum ProgressPhase {
     TRANSLATE,
 
     /** 审校 / 审校重翻进度 */
-    REVIEW
+    REVIEW,
+
+    /** 风格总结进度 */
+    SUMMARY
 }

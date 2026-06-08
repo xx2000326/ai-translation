@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS translation_task (
     review_round INT COMMENT '审校轮次',
     total_sentences INT NOT NULL DEFAULT 0 COMMENT '待翻译句子总数',
     completed_sentences INT NOT NULL DEFAULT 0 COMMENT '已完成翻译句子数',
-    progress_phase VARCHAR(20) NOT NULL DEFAULT 'TRANSLATE' COMMENT '进度阶段（TRANSLATE/REVIEW）',
+    progress_phase VARCHAR(20) NOT NULL DEFAULT 'TRANSLATE' COMMENT '进度阶段（TRANSLATE/REVIEW/SUMMARY）',
     review_sub_phase VARCHAR(20) COMMENT '审校子阶段（SCORING/RETRANSLATE）',
     source_file_name VARCHAR(255) COMMENT '源文件原始名称',
     source_file_key VARCHAR(255) COMMENT '源文件存储 key',

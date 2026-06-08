@@ -54,10 +54,17 @@ const lastStatus = ref(null)
 const hasAutoAdvancedToReview = ref(false)
 
 function isPastAiPhase(status, taskData) {
-  if (status === 'MANUAL_REVIEW' || status === 'REVIEW_DONE') {
+  if (status === 'MANUAL_REVIEW' || status === 'COMPLETED' || status === 'EXPORTED') {
     return true
   }
-  if (status === 'COMPLETED' || status === 'EXPORTED') {
+  // 开启风格统一时，REVIEW_DONE / TRANSLATED 之后还有 summary 阶段，须等 MANUAL_REVIEW
+  if (taskData?.enableSummary && (status === 'REVIEW_DONE' || status === 'TRANSLATED')) {
+    return false
+  }
+  if (taskData?.progressPhase === 'SUMMARY' && status !== 'MANUAL_REVIEW' && status !== 'COMPLETED' && status !== 'EXPORTED') {
+    return false
+  }
+  if (status === 'REVIEW_DONE') {
     return true
   }
   if (status === 'TRANSLATED' && taskData && !taskData.enableReview) {

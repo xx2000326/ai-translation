@@ -1,6 +1,8 @@
 package com.xx.aitranslation.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -74,6 +76,7 @@ public class TranslationTask {
     private Integer completedSentences;
 
     /** 进度阶段，存 {@link com.xx.aitranslation.enums.ProgressPhase} 的 name() */
+    @TableField(updateStrategy = FieldStrategy.NOT_NULL)
     private String progressPhase;
 
     /** 审校子阶段，存 {@link com.xx.aitranslation.enums.ReviewSubPhase} 的 name() */

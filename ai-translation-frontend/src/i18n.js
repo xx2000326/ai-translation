@@ -14,7 +14,13 @@ const LOCALES = {
     'review.progress.idle': '审校尚未开始',
     'review.segment.scoring': 'R{n} 评分',
     'review.segment.retranslate': 'R{n} 重翻',
-    'review.segment.skipped': '本轮无需重翻'
+    'review.segment.skipped': '本轮无需重翻',
+    'summary.progress.title': '风格统一进度',
+    'summary.progress': '已完成 {completed} / {total} 句',
+    'summary.progress.preparing': '正在生成风格指南…',
+    'summary.progress.done': '风格统一已完成',
+    'summary.progress.idle': '风格统一尚未开始',
+    'summary.status.running': '风格统一中…'
   },
   en: {
     'translation.progress.title': 'Translation',
@@ -31,7 +37,13 @@ const LOCALES = {
     'review.progress.idle': 'Review not started yet',
     'review.segment.scoring': 'R{n} score',
     'review.segment.retranslate': 'R{n} retranslate',
-    'review.segment.skipped': 'No retranslation needed'
+    'review.segment.skipped': 'No retranslation needed',
+    'summary.progress.title': 'Style Unification',
+    'summary.progress': '{completed} / {total} sentences done',
+    'summary.progress.preparing': 'Generating style guide…',
+    'summary.progress.done': 'Style unification complete',
+    'summary.progress.idle': 'Style unification not started yet',
+    'summary.status.running': 'Unifying style…'
   }
 }
 
