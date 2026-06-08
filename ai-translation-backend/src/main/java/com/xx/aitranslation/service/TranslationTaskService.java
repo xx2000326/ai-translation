@@ -1,6 +1,7 @@
 package com.xx.aitranslation.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.xx.aitranslation.common.BizException;
 import com.xx.aitranslation.dto.TaskConfigRequest;
 import com.xx.aitranslation.entity.Project;
@@ -8,6 +9,8 @@ import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.ParseGranularity;
+import com.xx.aitranslation.enums.ProgressPhase;
+import com.xx.aitranslation.enums.ReviewSubPhase;
 import com.xx.aitranslation.enums.TaskStatus;
 import com.xx.aitranslation.mapper.ProjectMapper;
 import com.xx.aitranslation.mapper.TaskGlossaryMapper;
@@ -24,7 +27,7 @@ import java.util.Optional;
 public class TranslationTaskService {
 
     private static final String DEFAULT_TRANSLATE_MODEL = "qwen-plus";
-    private static final String DEFAULT_REVIEW_MODEL = "deepseek-chat";
+    private static final String DEFAULT_REVIEW_MODEL = "deepseek-v4-flash";
     private static final String DEFAULT_SOURCE_LANG = "zh";
     private static final String DEFAULT_TARGET_LANG = "en";
 
@@ -196,9 +199,76 @@ public class TranslationTaskService {
     }
 
     public void saveReviewMeta(Long id, int score, int round) {
-        TranslationTask task = getById(id);
-        task.setReviewScore(score);
+        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
+                .eq(TranslationTask::getId, id)
+                .set(TranslationTask::getReviewScore, score)
+                .set(TranslationTask::getReviewRound, round));
+    }
+
+    public void updateReviewRound(Long taskId, int round) {
+        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
+                .eq(TranslationTask::getId, taskId)
+                .set(TranslationTask::getReviewRound, round));
+    }
+
+    public void initTranslateProgress(Long taskId, int total) {
+        TranslationTask task = getById(taskId);
+        task.setProgressPhase(ProgressPhase.TRANSLATE.name());
+        task.setReviewSubPhase(null);
+        task.setTotalSentences(total);
+        task.setCompletedSentences(0);
+        translationTaskMapper.updateById(task);
+    }
+
+    public void initReviewScoringProgress(Long taskId, int round, int total) {
+        TranslationTask task = getById(taskId);
+        task.setProgressPhase(ProgressPhase.REVIEW.name());
+        task.setReviewSubPhase(ReviewSubPhase.SCORING.name());
         task.setReviewRound(round);
+        task.setTotalSentences(total);
+        task.setCompletedSentences(0);
+        translationTaskMapper.updateById(task);
+    }
+
+    public void initReviewRetranslateProgress(Long taskId, int total) {
+        TranslationTask task = getById(taskId);
+        task.setProgressPhase(ProgressPhase.REVIEW.name());
+        task.setReviewSubPhase(ReviewSubPhase.RETRANSLATE.name());
+        task.setTotalSentences(total);
+        task.setCompletedSentences(0);
+        translationTaskMapper.updateById(task);
+    }
+
+    /** @deprecated 使用 {@link #initReviewScoringProgress} */
+    public void initReviewProgress(Long taskId, int total) {
+        initReviewScoringProgress(taskId, 1, total);
+    }
+
+    public void updateTranslateProgress(Long taskId, int completed, int total) {
+        updatePhaseProgress(taskId, completed, total, ProgressPhase.TRANSLATE);
+    }
+
+    public void updateReviewProgress(Long taskId, int completed, int total) {
+        TranslationTask task = new TranslationTask();
+        task.setId(taskId);
+        task.setProgressPhase(ProgressPhase.REVIEW.name());
+        task.setCompletedSentences(completed);
+        task.setTotalSentences(total);
+        translationTaskMapper.updateById(task);
+    }
+
+    public void clearReviewSubPhase(Long taskId) {
+        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
+                .eq(TranslationTask::getId, taskId)
+                .set(TranslationTask::getReviewSubPhase, null));
+    }
+
+    private void updatePhaseProgress(Long taskId, int completed, int total, ProgressPhase phase) {
+        TranslationTask task = new TranslationTask();
+        task.setId(taskId);
+        task.setProgressPhase(phase.name());
+        task.setCompletedSentences(completed);
+        task.setTotalSentences(total);
         translationTaskMapper.updateById(task);
     }
 

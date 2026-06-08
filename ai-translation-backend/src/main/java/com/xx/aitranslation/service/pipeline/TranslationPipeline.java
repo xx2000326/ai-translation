@@ -12,6 +12,7 @@ import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.FileType;
 import com.xx.aitranslation.enums.ParseGranularity;
+import com.xx.aitranslation.enums.ProgressPhase;
 import com.xx.aitranslation.enums.TaskStatus;
 import com.xx.aitranslation.enums.TranslationRole;
 import com.xx.aitranslation.enums.TranslationStyle;
@@ -23,7 +24,6 @@ import com.xx.aitranslation.service.TranslationTaskService;
 import com.xx.aitranslation.service.parse.DocumentParserFactory;
 import com.xx.aitranslation.service.parse.ParsedDocument;
 import com.xx.aitranslation.service.storage.FileStorageService;
-import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -35,14 +35,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
  * 翻译流水线编排器（V1 planner）：按状态机驱动 解析 → 并发翻译 → AI 审校循环 → 全文风格统一 → 人工审校。
  * <p>
- * 翻译以句子（{@code TranslationSentence}）为最小单元，通过 {@code translationExecutor} 并发执行（V1 模块四）；
+ * 翻译以句子（{@code TranslationSentence}）为最小单元，通过 {@link SentenceTranslationQueue} 有界队列并发执行；
  * 角色 / 风格 / 整体要求从所属项目与任务注入各 Agent（V1 模块三 / 五 / 六 / 七）。
  * 解析阶段复用已验证的 {@code parse} 包，本编排器仅做衔接，不改解析逻辑。
  */
@@ -66,10 +64,7 @@ public class TranslationPipeline {
     private final SummaryAgent summaryAgent;
     private final GlossaryService glossaryService;
     private final RagService ragService;
-
-    /** 句子级并发翻译线程池（按名注入，避免与 taskExecutor 冲突） */
-    @Resource(name = "translationExecutor")
-    private Executor translationExecutor;
+    private final SentenceTranslationQueue sentenceTranslationQueue;
 
     /**
      * 异步解析：下载源文件 → 调用解析器 → 落库 → 状态置 PARSED。
@@ -121,16 +116,12 @@ public class TranslationPipeline {
     }
 
     /**
-     * 并发翻译所有句子（V1 模块四）：每句一个任务提交到 {@code translationExecutor}，全部完成后返回。
+     * 并发翻译所有句子：通过全局有界队列调度，Worker 数量由 {@code app.translation.concurrency} 控制。
      */
     private void translateSentencesConcurrently(TranslationContext ctx, List<TranslationSentence> sentences) {
-        if (ObjectUtils.isEmpty(sentences)) {
-            return;
-        }
-        List<CompletableFuture<Void>> futures = sentences.stream()
-                .map(sent -> CompletableFuture.runAsync(() -> translateOne(ctx, sent, null), translationExecutor))
-                .collect(Collectors.toList());
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        sentenceTranslationQueue.executeBatch(
+                ctx.taskId, sentences, (sent, advice) -> translateOne(ctx, sent, advice), null,
+                ProgressPhase.TRANSLATE);
     }
 
     /**
@@ -175,8 +166,12 @@ public class TranslationPipeline {
         for (int round = 1; round <= MAX_ROUND; round++) {
             translationTaskService.transit(ctx.taskId, null, TaskStatus.REVIEWING);
             List<TranslationSentence> segs = translationTaskService.listSentences(ctx.taskId);
+            int segTotal = segs.size();
+            translationTaskService.initReviewScoringProgress(ctx.taskId, round, segTotal);
 
-            ReviewResult result = reviewAgent.review(segs, ctx.requirement, ctx.sourceLang, ctx.targetLang, ctx.reviewModel);
+            ReviewResult result = reviewAgent.review(
+                    segs, ctx.requirement, ctx.sourceLang, ctx.targetLang, ctx.reviewModel,
+                    scored -> translationTaskService.updateReviewProgress(ctx.taskId, scored, segTotal));
             Map<Integer, ReviewResult.SegmentReview> reviewByOrder = new HashMap<>();
             for (ReviewResult.SegmentReview r : result.segments()) {
                 reviewByOrder.put(r.orderNo(), r);
@@ -203,13 +198,17 @@ public class TranslationPipeline {
                 break;
             }
 
-            // 带审校建议并发重翻被标记段（反馈优化 Agent）
-            List<CompletableFuture<Void>> futures = flagged.stream()
-                    .map(seg -> CompletableFuture.runAsync(
-                            () -> translateOne(ctx, seg, seg.getReviewAdvice()), translationExecutor))
-                    .collect(Collectors.toList());
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            // 带审校建议并发重翻被标记句（反馈优化 Agent）
+            translationTaskService.initReviewRetranslateProgress(ctx.taskId, flagged.size());
+            sentenceTranslationQueue.executeBatch(
+                    ctx.taskId,
+                    flagged,
+                    (seg, ignored) -> translateOne(ctx, seg, seg.getReviewAdvice()),
+                    null,
+                    ProgressPhase.REVIEW,
+                    false);
         }
+        translationTaskService.clearReviewSubPhase(ctx.taskId);
         translationTaskService.transit(ctx.taskId, null, TaskStatus.REVIEW_DONE);
     }
 

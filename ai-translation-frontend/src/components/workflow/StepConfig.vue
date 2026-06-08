@@ -20,7 +20,7 @@ const form = ref({
   enableHistory: !!props.task.enableHistory,
   translateModel: props.task.translateModel || undefined,
   enableReview: !!props.task.enableReview,
-  reviewModel: props.task.reviewModel || 'deepseek-chat',
+  reviewModel: props.task.reviewModel || 'deepseek-v4-flash',
   enableSummary: !!props.task.enableSummary
 })
 

@@ -3,31 +3,31 @@ package com.xx.aitranslation.agent;
 import com.xx.aitranslation.dto.ReviewResult;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.enums.Language;
+import com.xx.aitranslation.service.pipeline.ReviewBatchQueue;
 import com.xx.aitranslation.service.ai.ChatModelRouter;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ObjectUtils;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntConsumer;
 
 /**
  * AIPE 审校 Agent（V1 模块五）：将原文 / 译文成对喂给审校模型，逐段给出评分与中文修改建议（结构化输出）。
  * <p>
- * 长文档按 {@link #BATCH_SIZE} 分批送审，避免单次 Prompt 过长导致输出被截断、
- * JSON 解析失败而整篇被静默判为通过；单批失败仅该批回退，不影响其余批次。
+ * 长文档按 {@link #BATCH_SIZE} 分批送审，经 {@link ReviewBatchQueue} 并行调度；
+ * 单批失败仅该批回退，不影响其余批次。
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ReviewAgent {
 
     /** 解析失败兜底分（视为通过，避免审校循环卡死） */
@@ -40,6 +40,16 @@ public class ReviewAgent {
     private Resource reviewPrompt;
 
     private final ChatModelRouter chatModelRouter;
+    private final ReviewBatchQueue reviewBatchQueue;
+
+    public ReviewAgent(ChatModelRouter chatModelRouter, @Lazy ReviewBatchQueue reviewBatchQueue) {
+        this.chatModelRouter = chatModelRouter;
+        this.reviewBatchQueue = reviewBatchQueue;
+    }
+
+    public int batchSize() {
+        return BATCH_SIZE;
+    }
 
     /**
      * 逐段审校（按 {@link #BATCH_SIZE} 分批执行后合并）。
@@ -53,21 +63,25 @@ public class ReviewAgent {
      */
     public ReviewResult review(List<TranslationSentence> segs, String requirement,
                                String sourceLang, String targetLang, String reviewModel) {
-        if (ObjectUtils.isEmpty(segs)) {
-            return new ReviewResult(List.of());
-        }
-        List<ReviewResult.SegmentReview> merged = new ArrayList<>();
-        for (int i = 0; i < segs.size(); i += BATCH_SIZE) {
-            List<TranslationSentence> batch = segs.subList(i, Math.min(i + BATCH_SIZE, segs.size()));
-            merged.addAll(reviewBatch(batch, requirement, sourceLang, targetLang, reviewModel));
-        }
-        return new ReviewResult(merged);
+        return review(segs, requirement, sourceLang, targetLang, reviewModel, null);
     }
 
     /**
-     * 审校单个批次，失败时仅该批回退为通过。
+     * 并行审校（按 {@link #BATCH_SIZE} 分批、{@link ReviewBatchQueue} 多 Worker 调度）。
+     * <p>
+     * 每完成一批更新 {@code onSentenceScored}（累计已评分句数，用于审校进度）。
      */
-    private List<ReviewResult.SegmentReview> reviewBatch(List<TranslationSentence> batch, String requirement,
+    public ReviewResult review(List<TranslationSentence> segs, String requirement,
+                               String sourceLang, String targetLang, String reviewModel,
+                               IntConsumer onSentenceScored) {
+        return reviewBatchQueue.executeReview(
+                segs, requirement, sourceLang, targetLang, reviewModel, onSentenceScored);
+    }
+
+    /**
+     * 审校单个批次，失败时仅该批回退为通过。供 {@link ReviewBatchQueue} 调用。
+     */
+    public List<ReviewResult.SegmentReview> reviewBatch(List<TranslationSentence> batch, String requirement,
                                                          String sourceLang, String targetLang, String reviewModel) {
         try {
             ChatClient client = chatModelRouter.client(reviewModel);

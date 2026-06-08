@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { api } from '../../api.js'
@@ -25,7 +25,7 @@ const RUNNING_STATUS = ['PARSING', 'TRANSLATING', 'TRANSLATED', 'REVIEWING', 'RE
 // 稳定态（停止轮询）
 const STABLE_STATUS = ['PARSED', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED', 'FAILED']
 
-// 状态 → 步骤映射
+// 状态 → 步骤映射（用于步骤条定位与可回看范围，不含自动跳转逻辑）
 function statusToStep(status) {
   switch (status) {
     case 'DRAFT':
@@ -49,9 +49,65 @@ function statusToStep(status) {
   }
 }
 
+const lastStatus = ref(null)
+/** 本轮 AI 流程是否已自动进入过人工审校（防止回看时被再次拉回） */
+const hasAutoAdvancedToReview = ref(false)
+
+function isPastAiPhase(status, taskData) {
+  if (status === 'MANUAL_REVIEW' || status === 'REVIEW_DONE') {
+    return true
+  }
+  if (status === 'COMPLETED' || status === 'EXPORTED') {
+    return true
+  }
+  if (status === 'TRANSLATED' && taskData && !taskData.enableReview) {
+    return true
+  }
+  return false
+}
+
+function applyStatusStep(data) {
+  const status = data.status
+  const prev = lastStatus.value
+  const target = statusToStep(status)
+
+  // 新一轮翻译开始，允许再次自动跳转
+  if (status === 'TRANSLATING' && prev !== 'TRANSLATING') {
+    hasAutoAdvancedToReview.value = false
+  }
+
+  if (status === 'COMPLETED' || status === 'EXPORTED') {
+    activeStep.value = Math.max(activeStep.value, 4)
+  } else if (isPastAiPhase(status, data) && !hasAutoAdvancedToReview.value) {
+    activeStep.value = Math.max(activeStep.value, 3)
+    hasAutoAdvancedToReview.value = true
+  } else if (prev === null) {
+    activeStep.value = Math.max(activeStep.value, target)
+    if (isPastAiPhase(status, data)) {
+      hasAutoAdvancedToReview.value = true
+    }
+  } else if (RUNNING_STATUS.includes(status) && !isPastAiPhase(status, data)) {
+    if (target >= activeStep.value) {
+      activeStep.value = target
+    }
+  }
+
+  lastStatus.value = status
+  syncMaxUnlockedStep(data)
+}
+
+function syncMaxUnlockedStep(data) {
+  const target = statusToStep(data.status)
+  maxUnlockedStep.value = Math.max(maxUnlockedStep.value, target)
+  if (isPastAiPhase(data.status, data)) {
+    maxUnlockedStep.value = Math.max(maxUnlockedStep.value, 3)
+  }
+}
+
 // 默认步骤跟随状态，允许用户手动切换回看
 const activeStep = ref(0)
-const statusStep = computed(() => (task.value ? statusToStep(task.value.status) : 0))
+/** 已解锁的最高可点击步骤（只增不减，回看时不封锁后续步骤） */
+const maxUnlockedStep = ref(0)
 const isFailed = computed(() => task.value?.status === 'FAILED')
 
 const steps = [
@@ -66,11 +122,7 @@ async function refreshTask() {
   try {
     const data = await api.getTask(props.taskId)
     task.value = data
-    // 跟随状态推进（不强制覆盖用户手动回看到的更早步骤，但若状态前进则跟进）
-    const target = statusToStep(data.status)
-    if (target >= activeStep.value || RUNNING_STATUS.includes(data.status)) {
-      activeStep.value = target
-    }
+    applyStatusStep(data)
     syncPolling()
   } catch (e) {
     message.error(e.message)
@@ -92,10 +144,7 @@ function startPolling() {
     try {
       const data = await api.getTask(props.taskId)
       task.value = data
-      const target = statusToStep(data.status)
-      if (target >= activeStep.value || RUNNING_STATUS.includes(data.status)) {
-        activeStep.value = target
-      }
+      applyStatusStep(data)
       if (STABLE_STATUS.includes(data.status)) {
         stopPolling()
       }
@@ -117,14 +166,15 @@ function stopPolling() {
 // 仅向前推进，绝不回退：避免出现「解析触发后直接跳到 AI 翻译」或「翻译极快时被拉回」的问题。
 async function onStepNext(target) {
   await refreshTask()
-  if (typeof target === 'number' && target > activeStep.value) {
-    activeStep.value = Math.min(target, steps.length - 1)
+  const step =
+    typeof target === 'number' ? target : statusToStep(task.value?.status)
+  if (step > activeStep.value) {
+    activeStep.value = Math.min(step, steps.length - 1)
   }
 }
 
 function onStepClick(e) {
-  // 仅允许回看已完成或当前的步骤
-  if (e <= statusStep.value) {
+  if (e <= maxUnlockedStep.value) {
     activeStep.value = e
   }
 }
@@ -134,6 +184,15 @@ onMounted(async () => {
   await refreshTask()
   loading.value = false
 })
+
+watch(
+  () => props.taskId,
+  () => {
+    lastStatus.value = null
+    hasAutoAdvancedToReview.value = false
+    maxUnlockedStep.value = 0
+  }
+)
 
 onUnmounted(stopPolling)
 </script>

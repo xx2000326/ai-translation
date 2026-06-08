@@ -3,6 +3,12 @@ import { ref, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { api } from '../../api.js'
 import { store } from '../../store.js'
+import { t } from '../../i18n.js'
+import {
+  buildReviewStepItems,
+  computeReviewOverallPercent,
+  reviewProgressLabel
+} from '../../reviewProgressUtil.js'
 
 const props = defineProps({
   task: { type: Object, required: true }
@@ -12,7 +18,7 @@ const emit = defineEmits(['next'])
 const form = ref({
   model: props.task.translateModel || undefined,
   enableReview: !!props.task.enableReview,
-  reviewModel: props.task.reviewModel || 'deepseek-chat'
+  reviewModel: props.task.reviewModel || 'deepseek-v4-flash'
 })
 
 const modelOptions = computed(() => store.models.map((m) => ({ value: m, label: m })))
@@ -39,6 +45,81 @@ const statusText = computed(() => {
 
 const submitting = ref(false)
 
+const TRANSLATE_DONE_STATUS = [
+  'TRANSLATED', 'REVIEWING', 'REVIEW_DONE', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'
+]
+
+/** 运行中用任务配置，设置页用表单开关（勾选后立即展示审校进度条） */
+const reviewEnabled = computed(() =>
+  isRunning.value ? !!props.task.enableReview : !!form.value.enableReview
+)
+
+const translationProgress = computed(() => {
+  const status = props.task.status
+  const phase = props.task.progressPhase || 'TRANSLATE'
+  const total = props.task.totalSentences || 0
+  const completed = props.task.completedSentences || 0
+
+  if (TRANSLATE_DONE_STATUS.includes(status)) {
+    return {
+      percent: 100,
+      barStatus: 'success',
+      label: t('translation.progress.done')
+    }
+  }
+
+  if (status === 'TRANSLATING') {
+    const inTranslatePhase = phase === 'TRANSLATE'
+    const percent =
+      inTranslatePhase && total > 0
+        ? Math.min(100, Math.round((completed / total) * 100))
+        : 0
+    return {
+      percent,
+      barStatus: !inTranslatePhase || total <= 0 || percent < 100 ? 'active' : 'success',
+      label:
+        inTranslatePhase && total > 0
+          ? t('translation.progress', { completed, total })
+          : t('translation.progress.preparing')
+    }
+  }
+
+  return {
+    percent: 0,
+    barStatus: 'normal',
+    label: t('translation.progress.idle')
+  }
+})
+
+const reviewProgress = computed(() => {
+  if (!reviewEnabled.value) {
+    return null
+  }
+
+  const status = props.task.status
+  const round = props.task.reviewRound || 1
+  const subPhase = props.task.reviewSubPhase || 'SCORING'
+  const total = props.task.totalSentences || 0
+  const completed = props.task.completedSentences || 0
+
+  const percent = computeReviewOverallPercent(status, round, subPhase, completed, total)
+  const barStatus =
+    status === 'REVIEW_DONE'
+      ? 'success'
+      : status === 'REVIEWING'
+        ? percent >= 100
+          ? 'success'
+          : 'active'
+        : 'normal'
+
+  return {
+    percent,
+    barStatus,
+    label: reviewProgressLabel(status, round, subPhase, completed, total, t),
+    steps: buildReviewStepItems(status, round, subPhase, t)
+  }
+})
+
 async function startTranslate() {
   submitting.value = true
   try {
@@ -59,12 +140,39 @@ async function startTranslate() {
 </script>
 
 <template>
-  <div>
+  <div class="step-translate">
+    <div class="translate-progress-panel">
+      <div class="progress-block">
+        <div class="progress-block-title">{{ t('translation.progress.title') }}</div>
+        <a-progress
+          :percent="translationProgress.percent"
+          :status="translationProgress.barStatus"
+          :show-info="true"
+        />
+        <div class="translate-progress-label">{{ translationProgress.label }}</div>
+      </div>
+      <div v-if="reviewProgress" class="progress-block">
+        <div class="progress-block-title">{{ t('review.progress.title') }}</div>
+        <a-steps
+          v-if="reviewProgress.steps?.length"
+          size="small"
+          :current="-1"
+          class="review-segment-steps"
+          :items="reviewProgress.steps"
+        />
+        <a-progress
+          :percent="reviewProgress.percent"
+          :status="reviewProgress.barStatus"
+          :show-info="true"
+        />
+        <div class="translate-progress-label">{{ reviewProgress.label }}</div>
+      </div>
+    </div>
+
     <div v-if="isRunning" class="run-stage">
       <div class="run-emoji">{{ task.status === 'REVIEWING' ? '🔍' : '✨' }}</div>
       <a-spin size="large" style="margin-top: 12px" />
       <div class="run-text">{{ statusText }}</div>
-      <div class="run-sub">多 Agent 正在并行处理，可稍候片刻…</div>
     </div>
 
     <a-card v-else title="AI 翻译设置" size="small" style="max-width: 520px">

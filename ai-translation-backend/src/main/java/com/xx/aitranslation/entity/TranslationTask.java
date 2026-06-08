@@ -67,6 +67,18 @@ public class TranslationTask {
     /** 审校轮次 */
     private Integer reviewRound;
 
+    /** 待翻译句子总数（初翻进度分母） */
+    private Integer totalSentences;
+
+    /** 已完成翻译句子数（初翻进度分子） */
+    private Integer completedSentences;
+
+    /** 进度阶段，存 {@link com.xx.aitranslation.enums.ProgressPhase} 的 name() */
+    private String progressPhase;
+
+    /** 审校子阶段，存 {@link com.xx.aitranslation.enums.ReviewSubPhase} 的 name() */
+    private String reviewSubPhase;
+
     /** 源文件原始名称 */
     private String sourceFileName;
 

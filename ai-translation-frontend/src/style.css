@@ -545,6 +545,44 @@ h4 {
   font-size: 13px;
 }
 
+.step-translate .translate-progress-panel {
+  max-width: 520px;
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.step-translate .progress-block + .progress-block {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.step-translate .progress-block-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+}
+
+.step-translate .review-segment-steps {
+  margin-bottom: 12px;
+}
+
+.step-translate .review-segment-steps .ant-steps-item-title {
+  font-size: 11px;
+}
+
+.step-translate .translate-progress-label {
+  margin-top: 8px;
+  color: var(--ink-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* 解析 / 校对分段卡 */
 .seg-block {
   padding: 14px 16px;

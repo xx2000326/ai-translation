@@ -62,8 +62,12 @@ app:
 
   # ===================== 翻译流水线 =====================
   translation:
-    # 句子级并发翻译并发度（V1 模块四：多 Agent 并发翻译）
+    # 句子翻译队列 Worker 数量（全局最大在途 LLM 请求数）
     concurrency: ${TRANSLATION_CONCURRENCY:8}
+    # 有界队列容量，建议 concurrency × 2
+    queue-capacity: ${TRANSLATION_QUEUE_CAPACITY:16}
+    # 每分钟 API 调用上限，0 表示不限制
+    rate-limit-per-minute: ${TRANSLATION_RATE_LIMIT_PER_MINUTE:0}
 
   # ===================== 文件存储（源文件上传） =====================
   # type=local 时写本地磁盘（默认）；type=minio 时走 MinIO 对象存储

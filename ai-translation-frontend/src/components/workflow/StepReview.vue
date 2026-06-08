@@ -83,7 +83,7 @@ async function confirmComplete() {
   try {
     await api.completeTask(props.task.id)
     message.success('任务已完成')
-    emit('done')
+    emit('done', 4)
   } catch (e) {
     message.error(e.message)
   }
