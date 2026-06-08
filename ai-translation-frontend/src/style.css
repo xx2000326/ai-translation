@@ -603,6 +603,31 @@ h4 {
   display: flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.seg-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+  padding: 6px 12px;
+  border-left: 3px solid var(--clay, #c08457);
+  border-radius: 6px;
+  background: var(--clay-wash, #faf4ea);
+  font-size: 13px;
+  color: var(--ink, #3d3329);
+}
+
+.seg-title {
+  font-weight: 600;
+  color: var(--ink, #3d3329);
+}
+
+.seg-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-soft, #a08c74);
 }
 
 /* 人工审校左右对照 */

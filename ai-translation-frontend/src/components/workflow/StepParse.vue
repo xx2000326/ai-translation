@@ -22,11 +22,56 @@ const hasParseResult = computed(() => PARSE_AVAILABLE.includes(props.task.status
 // 仅在 PARSED 阶段允许编辑原文并触发翻译；后续状态为只读回看
 const editable = computed(() => props.task.status === 'PARSED')
 
-// 高级拆分（STRUCTURE）：分段携带章节标题，按「章节块」展示
+// 含标题 / 层级信息的拆分（标题层级 / Markdown / 父子层级）按「章节块」层级化展示
 const isStructure = computed(() =>
-  segments.value.some((s) => s.blockType === 'chunk' || s.title)
+  segments.value.some((s) => s.level != null || s.title)
 )
-const unitLabel = computed(() => (isStructure.value ? '个章节块' : '句'))
+const unitLabel = computed(() => (isStructure.value ? '个章节块' : '个块'))
+
+// 层级标签配色（按层级深度区分），与 ChunkPanel 预览页一致
+const COLORS = ['default', 'blue', 'orange', 'cyan', 'green', 'purple', 'magenta']
+
+// 根据分段层级 / 标题生成层级标签：标题层级显示 H{level}，父子层级显示父块 / 子块
+function levelTag(seg) {
+  if (seg.level == null) {
+    return { text: '块', color: 'blue' }
+  }
+  if (seg.level === 0) {
+    return { text: '正文', color: 'default' }
+  }
+  if (seg.title) {
+    return { text: 'H' + seg.level, color: COLORS[seg.level] || 'blue' }
+  }
+  if (seg.level >= 2) {
+    return { text: '子块', color: 'cyan' }
+  }
+  return { text: '父块', color: 'orange' }
+}
+
+// 按层级缩进，直观呈现父级 / 子级关系
+function indentStyle(seg) {
+  return { marginLeft: (seg.level || 0) * 20 + 'px' }
+}
+
+// 父级是否已作为独立行展示（标题层级 / Markdown 策略下父级本身就是一行）
+function parentIsRow(seg) {
+  return !!seg.parentTitle && segments.value.some((s) => s.title && s.title === seg.parentTitle)
+}
+
+// 是否在当前子块前插入父块分组表头（父子层级策略：父块不单独成行，按父级分组展示）
+function showGroupHeader(seg, i) {
+  if (!seg.parentTitle || parentIsRow(seg)) {
+    return false
+  }
+  const prev = segments.value[i - 1]
+  return !(prev && prev.parentTitle === seg.parentTitle)
+}
+
+// 父块分组表头缩进：比其子块少一级
+function groupIndentStyle(seg) {
+  const lv = seg.level ? Math.max(0, seg.level - 1) : 0
+  return { marginLeft: lv * 20 + 'px' }
+}
 
 async function loadSegments() {
   if (!hasParseResult.value) return
@@ -93,24 +138,28 @@ onMounted(loadSegments)
 
       <a-spin :spinning="loading">
         <div class="seg-list" style="margin-top: 16px">
-          <div v-for="seg in segments" :key="seg.id" class="seg-block">
-            <div class="seg-meta">
-              <a-tag>#{{ seg.orderNo }}</a-tag>
-              <template v-if="isStructure">
-                <a-tag v-if="seg.level != null" color="purple">L{{ seg.level }}</a-tag>
-                <a-tag v-if="seg.title" color="geekblue">{{ seg.title }}</a-tag>
-                <a-typography-text v-if="seg.parentTitle" type="secondary" style="font-size: 12px">
+          <template v-for="(seg, i) in segments" :key="seg.id">
+            <div v-if="showGroupHeader(seg, i)" class="seg-group" :style="groupIndentStyle(seg)">
+              <a-tag color="orange">父块</a-tag>
+              <span class="seg-title">{{ seg.parentTitle }}</span>
+            </div>
+            <div class="seg-block" :style="indentStyle(seg)">
+              <div class="seg-meta">
+                <a-tag>#{{ seg.orderNo }}</a-tag>
+                <a-tag :color="levelTag(seg).color">{{ levelTag(seg).text }}</a-tag>
+                <span v-if="seg.title" class="seg-title">{{ seg.title }}</span>
+                <a-typography-text v-if="parentIsRow(seg)" type="secondary" style="font-size: 12px">
                   上级：{{ seg.parentTitle }}
                 </a-typography-text>
-              </template>
-              <a-tag v-else color="blue">{{ seg.blockType }}</a-tag>
+                <span class="seg-count">{{ (seg.originalText || '').length }} 字符</span>
+              </div>
+              <a-textarea
+                v-model:value="seg.originalText"
+                :auto-size="{ minRows: 1, maxRows: 8 }"
+                :readonly="!editable"
+              />
             </div>
-            <a-textarea
-              v-model:value="seg.originalText"
-              :auto-size="{ minRows: 1, maxRows: 8 }"
-              :readonly="!editable"
-            />
-          </div>
+          </template>
         </div>
       </a-spin>
 
