@@ -14,8 +14,8 @@
 - **多存储支持**：本地磁盘 / MinIO 对象存储二选一
 - **国际化**：后端错误信息支持中英双语（`messages.properties`）
 
-> 📖 **完整工作流说明（HTML）**：[docs/workflow/translation-workflow.html](docs/workflow/translation-workflow.html) — 浏览器直接打开，含业务流、状态机与技术附录。  
-> 📖 **AI 翻译阶段深度解析**：[docs/workflow/ai-translation-phase.html](docs/workflow/ai-translation-phase.html) — 初翻 / 审校循环 / 风格统一 / RAG / 并发编排。
+> 📖 **完整工作流说明（HTML）**：[doc/workflow/translation-workflow.html](doc/workflow/translation-workflow.html) — 浏览器直接打开，含业务流、状态机与技术附录。  
+> 📖 **AI 翻译阶段深度解析**：[doc/workflow/ai-translation-phase.html](doc/workflow/ai-translation-phase.html) — 初翻 / 审校循环 / 风格统一 / RAG / 并发编排。
 
 ---
 
@@ -63,7 +63,9 @@ ai-translation/
 │       ├── api.js                   # 接口封装
 │       ├── App.vue
 │       └── store.js
-└── src/doc/                         # 设计文档
+└── doc/                             # 设计文档与工作流 HTML
+    ├── V1/                          # V1 实现说明
+    └── workflow/                    # 翻译工作流可视化文档（浏览器打开 .html）
 ```
 
 ---
