@@ -22,6 +22,12 @@ const hasParseResult = computed(() => PARSE_AVAILABLE.includes(props.task.status
 // 仅在 PARSED 阶段允许编辑原文并触发翻译；后续状态为只读回看
 const editable = computed(() => props.task.status === 'PARSED')
 
+// 高级拆分（STRUCTURE）：分段携带章节标题，按「章节块」展示
+const isStructure = computed(() =>
+  segments.value.some((s) => s.blockType === 'chunk' || s.title)
+)
+const unitLabel = computed(() => (isStructure.value ? '个章节块' : '句'))
+
 async function loadSegments() {
   if (!hasParseResult.value) return
   loading.value = true
@@ -82,7 +88,7 @@ onMounted(loadSegments)
 
     <div v-else-if="hasParseResult">
       <a-typography-text type="secondary">
-        共 {{ segments.length }} 句。{{ editable ? '可在此对原文分句进行人工校对修改。' : '当前任务已进入后续阶段，原文分段仅供回看。' }}
+        共 {{ segments.length }} {{ unitLabel }}。{{ editable ? '可在此对原文分段进行人工校对修改。' : '当前任务已进入后续阶段，原文分段仅供回看。' }}
       </a-typography-text>
 
       <a-spin :spinning="loading">
@@ -90,11 +96,18 @@ onMounted(loadSegments)
           <div v-for="seg in segments" :key="seg.id" class="seg-block">
             <div class="seg-meta">
               <a-tag>#{{ seg.orderNo }}</a-tag>
-              <a-tag color="blue">{{ seg.blockType }}</a-tag>
+              <template v-if="isStructure">
+                <a-tag v-if="seg.level != null" color="purple">L{{ seg.level }}</a-tag>
+                <a-tag v-if="seg.title" color="geekblue">{{ seg.title }}</a-tag>
+                <a-typography-text v-if="seg.parentTitle" type="secondary" style="font-size: 12px">
+                  上级：{{ seg.parentTitle }}
+                </a-typography-text>
+              </template>
+              <a-tag v-else color="blue">{{ seg.blockType }}</a-tag>
             </div>
             <a-textarea
               v-model:value="seg.originalText"
-              :auto-size="{ minRows: 1, maxRows: 6 }"
+              :auto-size="{ minRows: 1, maxRows: 8 }"
               :readonly="!editable"
             />
           </div>

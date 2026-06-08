@@ -28,7 +28,8 @@ const langOptions = computed(() => store.languages.map((l) => ({ value: l.code, 
 const modelOptions = computed(() => store.models.map((m) => ({ value: m, label: m })))
 const granularityOptions = [
   { value: 'SENTENCE', label: '按句拆分（逐句翻译，更细粒度）' },
-  { value: 'PARAGRAPH', label: '按段拆分（整段翻译，保持上下文）' }
+  { value: 'PARAGRAPH', label: '按段拆分（整段翻译，保持上下文）' },
+  { value: 'STRUCTURE', label: '高级拆分（按文档结构，保留章节层级）' }
 ]
 
 // 上传文件
@@ -174,6 +175,11 @@ onMounted(loadGlossary)
                   {{ g.label }}
                 </a-radio-button>
               </a-radio-group>
+              <div v-if="form.parseGranularity === 'STRUCTURE'" style="margin-top: 6px">
+                <a-typography-text type="secondary" style="font-size: 12px">
+                  按「第X章 / 第X节 / 1 / 1.1 / 1.1.1」识别章节，以最小章节为翻译单元，超长章节自动按段切分。结构识别目前对 DOCX 效果最佳。
+                </a-typography-text>
+              </div>
             </a-form-item>
             <a-row :gutter="16">
               <a-col :span="12">

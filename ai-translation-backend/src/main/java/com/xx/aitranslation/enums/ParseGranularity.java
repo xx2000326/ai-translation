@@ -9,12 +9,15 @@ import java.util.Objects;
  * <ul>
  *     <li>{@link #SENTENCE}：按句拆分（SRX 分句），每句一个翻译单元（默认）。</li>
  *     <li>{@link #PARAGRAPH}：按段拆分，每个段落整体作为一个翻译单元，不再细分句子。</li>
+ *     <li>{@link #STRUCTURE}：高级拆分（按文档结构）。识别标题层级构建章节树，以最小章节节点作为
+ *     Chunk；超长 Chunk 再按段落切分为 Part，并保留章节层级与父子关系。</li>
  * </ul>
  */
 public enum ParseGranularity {
 
     SENTENCE,
-    PARAGRAPH;
+    PARAGRAPH,
+    STRUCTURE;
 
     public static List<String> codes() {
         return Arrays.stream(values()).map(Enum::name).toList();

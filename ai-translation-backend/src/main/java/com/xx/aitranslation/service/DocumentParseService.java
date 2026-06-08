@@ -76,6 +76,12 @@ public class DocumentParseService {
             paragraph.setParaPosition(para.paraPosition());
             paragraph.setParaType(para.paraType());
             paragraph.setOriginalText(para.originalText());
+            if (!ObjectUtils.isEmpty(para.level())) {
+                paragraph.setChunkId(para.paraPosition());
+                paragraph.setTitle(para.title());
+                paragraph.setParentTitle(para.parentTitle());
+                paragraph.setLevel(para.level());
+            }
             paragraphMapper.insert(paragraph);
 
             if (ObjectUtils.isEmpty(para.sentences())) {
@@ -166,6 +172,11 @@ public class DocumentParseService {
             view.setOrderNo(sent.getOrderNo());
             TranslationParagraph para = paraMap.get(sent.getParagraphId());
             view.setBlockType(ObjectUtils.isEmpty(para) ? "paragraph" : para.getParaType());
+            if (!ObjectUtils.isEmpty(para)) {
+                view.setTitle(para.getTitle());
+                view.setParentTitle(para.getParentTitle());
+                view.setLevel(para.getLevel());
+            }
             view.setOriginalText(sent.getOriginalText());
             view.setTranslatedText(sent.getTranslatedText());
             view.setReviewedText(sent.getReviewedText());

@@ -45,7 +45,7 @@ abstract class OkapiDocumentParser implements DocumentParser {
                     continue;
                 }
                 List<ParsedSentence> sentences;
-                if (granularity == ParseGranularity.PARAGRAPH) {
+                if (granularity == ParseGranularity.PARAGRAPH || granularity == ParseGranularity.STRUCTURE) {
                     sentences = ParseSrxLoader.singleSentence(tuText);
                 } else {
                     tu.createSourceSegmentation(segmenter);

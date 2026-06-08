@@ -97,8 +97,12 @@ CREATE TABLE IF NOT EXISTS translation_paragraph (
     document_id BIGINT NOT NULL COMMENT '所属文档ID',
     order_no INT NOT NULL COMMENT '段落顺序号',
     para_position VARCHAR(128) COMMENT '解析器定位（Okapi tu id 等）',
-    para_type VARCHAR(50) COMMENT '段落类型',
+    para_type VARCHAR(50) COMMENT '段落类型（paragraph / chunk）',
     original_text MEDIUMTEXT COMMENT '段落原文（句子拼接）',
+    chunk_id VARCHAR(64) COMMENT '高级拆分 Chunk 唯一标识（文档内）',
+    title VARCHAR(512) COMMENT '高级拆分章节标题（或 标题-PartN）',
+    parent_title VARCHAR(512) COMMENT '高级拆分父标题（层级父章节标题）',
+    node_level INT COMMENT '高级拆分章节层级（根级正文=0）',
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_document_id (document_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='翻译段落表';

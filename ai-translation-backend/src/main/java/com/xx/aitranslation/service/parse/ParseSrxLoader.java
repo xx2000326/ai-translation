@@ -48,7 +48,7 @@ final class ParseSrxLoader {
      * </ul>
      */
     static List<ParsedSentence> split(LocaleId locale, String text, ParseGranularity granularity) {
-        if (granularity == ParseGranularity.PARAGRAPH) {
+        if (granularity == ParseGranularity.PARAGRAPH || granularity == ParseGranularity.STRUCTURE) {
             return singleSentence(text);
         }
         return segment(locale, text);

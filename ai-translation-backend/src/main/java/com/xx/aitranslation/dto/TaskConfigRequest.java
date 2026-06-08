@@ -22,7 +22,7 @@ public class TaskConfigRequest {
     /** 目标语言 code */
     private String targetLang;
 
-    /** 解析拆分粒度：SENTENCE（按句）/ PARAGRAPH（按段） */
+    /** 解析拆分粒度：SENTENCE（按句）/ PARAGRAPH（按段）/ STRUCTURE（高级拆分，按文档结构） */
     private String parseGranularity;
 
     /** 是否启用术语库 */

@@ -40,7 +40,7 @@ public class TranslationTask {
     /** 目标语言 code */
     private String targetLang;
 
-    /** 解析拆分粒度，存 {@link com.xx.aitranslation.enums.ParseGranularity} 的 name()（SENTENCE/PARAGRAPH） */
+    /** 解析拆分粒度，存 {@link com.xx.aitranslation.enums.ParseGranularity} 的 name()（SENTENCE/PARAGRAPH/STRUCTURE） */
     private String parseGranularity;
 
     /** 是否启用术语库 */
