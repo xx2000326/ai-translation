@@ -83,6 +83,25 @@ public class SummaryAgent {
         String styleGuide = extractStyleGuide(
                 segs, requirement, sourceLang, targetLang, roleDesc, styleDesc, glossaryRules, modelCode);
 
+        return unifyWithStyleGuide(
+                segs, styleGuide, requirement, sourceLang, targetLang, modelCode, onProgress);
+    }
+
+    /**
+     * Phase 2：在已有 StyleGuide 下并行分批润色。
+     */
+    public Map<Integer, String> unifyWithStyleGuide(
+            List<TranslationSentence> segs,
+            String styleGuide,
+            String requirement,
+            String sourceLang,
+            String targetLang,
+            String modelCode,
+            IntConsumer onProgress) {
+        if (ObjectUtils.isEmpty(segs)) {
+            return Map.of();
+        }
+
         List<SummaryBatch> batches = SummaryBatchSplitter.split(
                 segs, summaryProperties.getBatchSize(), summaryProperties.getOverlapSentences());
 

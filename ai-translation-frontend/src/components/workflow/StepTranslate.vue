@@ -7,8 +7,16 @@ import { t } from '../../i18n.js'
 import {
   buildReviewStepItems,
   computeReviewOverallPercent,
+  isReviewPhaseComplete,
   reviewProgressLabel
 } from '../../reviewProgressUtil.js'
+import {
+  isAgentProcessing,
+  isSummaryRunning,
+  resolveReviewContext,
+  resolveSummaryStep,
+  resolveTranslateStep
+} from '../../taskStepUtil.js'
 
 const props = defineProps({
   task: { type: Object, required: true }
@@ -23,36 +31,25 @@ const form = ref({
 
 const modelOptions = computed(() => store.models.map((m) => ({ value: m, label: m })))
 
-// 翻译阶段的所有在途状态都视为"运行中"，避免在 TRANSLATED / REVIEW_DONE 等中间态
-// 闪回到"开始 AI 翻译"设置卡片（翻译/审校/风格统一耗时较长时尤为明显）。
-const RUNNING = ['TRANSLATING', 'TRANSLATED', 'REVIEWING', 'REVIEW_DONE']
-const isRunning = computed(() => RUNNING.includes(props.task.status))
+const isRunning = computed(() => isAgentProcessing(props.task.status))
 
 const statusText = computed(() => {
-  if (props.task.progressPhase === 'SUMMARY' && props.task.enableSummary) {
+  if (isSummaryRunning(props.task)) {
     return t('summary.status.running')
   }
-  switch (props.task.status) {
-    case 'TRANSLATING':
-      return 'AI 翻译中…'
-    case 'REVIEWING':
-      return `AI 审校中，第 ${props.task.reviewRound || 1} 轮`
-    case 'TRANSLATED':
-      return '初翻完成'
-    case 'REVIEW_DONE':
-      return 'AI 审校完成'
-    default:
-      return ''
+  const ctx = resolveReviewContext(props.task)
+  if (ctx?.reviewing) {
+    return t('taskStep.status.reviewing', { round: ctx.round })
   }
+  const ts = resolveTranslateStep(props.task)
+  if (isAgentProcessing(props.task.status) && ts.running) {
+    return t('taskStep.status.translating')
+  }
+  return ''
 })
 
 const submitting = ref(false)
 
-const TRANSLATE_DONE_STATUS = [
-  'TRANSLATED', 'REVIEWING', 'REVIEW_DONE', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'
-]
-
-/** 运行中用任务配置，设置页用表单开关（勾选后立即展示审校进度条） */
 const reviewEnabled = computed(() =>
   isRunning.value ? !!props.task.enableReview : !!form.value.enableReview
 )
@@ -64,12 +61,12 @@ const summaryProgress = computed(() => {
     return null
   }
 
-  const status = props.task.status
-  const phase = props.task.progressPhase || 'TRANSLATE'
-  const total = props.task.totalSentences || 0
-  const completed = props.task.completedSentences || 0
+  const ss = resolveSummaryStep(props.task)
+  if (!ss) {
+    return null
+  }
 
-  if (['MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'].includes(status)) {
+  if (['MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'].includes(props.task.status) || ss.done) {
     return {
       percent: 100,
       barStatus: 'success',
@@ -77,7 +74,7 @@ const summaryProgress = computed(() => {
     }
   }
 
-  if (phase !== 'SUMMARY') {
+  if (!ss.running) {
     return {
       percent: 0,
       barStatus: 'normal',
@@ -85,21 +82,23 @@ const summaryProgress = computed(() => {
     }
   }
 
-  const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0
+  const percent =
+    ss.total > 0 ? Math.min(100, Math.round((ss.completed / ss.total) * 100)) : 0
   return {
     percent,
     barStatus: percent >= 100 ? 'success' : 'active',
-    label: total > 0 ? t('summary.progress', { completed, total }) : t('summary.progress.preparing')
+    label:
+      ss.total > 0
+        ? t('summary.progress', { completed: ss.completed, total: ss.total })
+        : t('summary.progress.preparing')
   }
 })
 
 const translationProgress = computed(() => {
   const status = props.task.status
-  const phase = props.task.progressPhase || 'TRANSLATE'
-  const total = props.task.totalSentences || 0
-  const completed = props.task.completedSentences || 0
+  const ts = resolveTranslateStep(props.task)
 
-  if (TRANSLATE_DONE_STATUS.includes(status)) {
+  if (['MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'].includes(status)) {
     return {
       percent: 100,
       barStatus: 'success',
@@ -107,19 +106,28 @@ const translationProgress = computed(() => {
     }
   }
 
-  if (status === 'TRANSLATING') {
-    const inTranslatePhase = phase === 'TRANSLATE'
-    const percent =
-      inTranslatePhase && total > 0
-        ? Math.min(100, Math.round((completed / total) * 100))
-        : 0
-    return {
-      percent,
-      barStatus: !inTranslatePhase || total <= 0 || percent < 100 ? 'active' : 'success',
-      label:
-        inTranslatePhase && total > 0
-          ? t('translation.progress', { completed, total })
-          : t('translation.progress.preparing')
+  if (isAgentProcessing(status)) {
+    if (ts.done) {
+      return {
+        percent: 100,
+        barStatus: 'success',
+        label: t('translation.progress.done')
+      }
+    }
+    if (ts.running && ts.total > 0) {
+      const percent = Math.min(100, Math.round((ts.completed / ts.total) * 100))
+      return {
+        percent,
+        barStatus: percent >= 100 ? 'success' : 'active',
+        label: t('translation.progress', { completed: ts.completed, total: ts.total })
+      }
+    }
+    if (ts.running) {
+      return {
+        percent: 0,
+        barStatus: 'active',
+        label: t('translation.progress.preparing')
+      }
     }
   }
 
@@ -135,30 +143,25 @@ const reviewProgress = computed(() => {
     return null
   }
 
-  const status = props.task.status
-  const phase = props.task.progressPhase || 'TRANSLATE'
-  const round = props.task.reviewRound || 1
-  const subPhase = props.task.reviewSubPhase || 'SCORING'
-  const total = props.task.totalSentences || 0
-  const completed = props.task.completedSentences || 0
-  const reviewDone = phase === 'SUMMARY' ||
-    ['REVIEW_DONE', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED'].includes(status)
+  const task = props.task
+  const ctx = resolveReviewContext(task)
+  const reviewDone = isReviewPhaseComplete(task)
+  const reviewing = ctx.reviewing
 
-  const percent = computeReviewOverallPercent(status, round, subPhase, completed, total, phase)
-  const barStatus =
-    reviewDone
-      ? 'success'
-      : status === 'REVIEWING'
-        ? percent >= 100
-          ? 'success'
-          : 'active'
-        : 'normal'
+  const percent = computeReviewOverallPercent(task)
+  const barStatus = reviewDone
+    ? 'success'
+    : reviewing
+      ? percent >= 100
+        ? 'success'
+        : 'active'
+      : 'normal'
 
   return {
     percent,
     barStatus,
-    label: reviewProgressLabel(status, round, subPhase, completed, total, t, phase),
-    steps: buildReviewStepItems(status, round, subPhase, t, phase)
+    label: reviewProgressLabel(task, t),
+    steps: buildReviewStepItems(task, t)
   }
 })
 
@@ -170,8 +173,7 @@ async function startTranslate() {
       enableReview: form.value.enableReview,
       reviewModel: form.value.reviewModel
     })
-    message.success('已开始 AI 翻译')
-    // 停留在「AI 翻译」步骤展示进度；完成后由轮询自动推进到人工审校
+    message.success(t('taskStep.translate.started'))
     emit('next', 2)
   } catch (e) {
     message.error(e.message)
@@ -221,25 +223,27 @@ async function startTranslate() {
     </div>
 
     <div v-if="isRunning" class="run-stage">
-      <div class="run-emoji">{{ task.status === 'REVIEWING' ? '🔍' : '✨' }}</div>
+      <div class="run-emoji">{{ resolveReviewContext(task)?.reviewing ? '🔍' : '✨' }}</div>
       <a-spin size="large" style="margin-top: 12px" />
       <div class="run-text">{{ statusText }}</div>
     </div>
 
-    <a-card v-else title="AI 翻译设置" size="small" style="max-width: 520px">
+    <a-card v-else :title="t('taskStep.translate.settings')" size="small" style="max-width: 520px">
       <a-form layout="vertical">
-        <a-form-item label="初翻译模型">
-          <a-select v-model:value="form.model" :options="modelOptions" placeholder="选择模型" />
+        <a-form-item :label="t('taskStep.translate.model')">
+          <a-select v-model:value="form.model" :options="modelOptions" :placeholder="t('taskStep.translate.modelPlaceholder')" />
         </a-form-item>
-        <a-form-item label="AI 审校">
+        <a-form-item :label="t('taskStep.translate.enableReview')">
           <a-switch v-model:checked="form.enableReview" />
         </a-form-item>
-        <a-form-item v-if="form.enableReview" label="审校模型">
-          <a-select v-model:value="form.reviewModel" :options="modelOptions" placeholder="选择模型" />
+        <a-form-item v-if="form.enableReview" :label="t('taskStep.translate.reviewModel')">
+          <a-select v-model:value="form.reviewModel" :options="modelOptions" :placeholder="t('taskStep.translate.modelPlaceholder')" />
         </a-form-item>
       </a-form>
       <div style="text-align: right">
-        <a-button type="primary" :loading="submitting" @click="startTranslate">开始 AI 翻译</a-button>
+        <a-button type="primary" :loading="submitting" @click="startTranslate">
+          {{ t('taskStep.translate.start') }}
+        </a-button>
       </div>
     </a-card>
   </div>

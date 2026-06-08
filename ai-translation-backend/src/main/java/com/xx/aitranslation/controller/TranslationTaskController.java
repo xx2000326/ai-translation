@@ -110,9 +110,12 @@ public class TranslationTaskController {
     public Result<Map<String, String>> translate(@PathVariable Long id, @RequestBody StartTranslateRequest request) {
         translationTaskService.saveTranslateConfig(id, request.getModel(),
                 request.getEnableReview(), request.getReviewModel());
-        TranslationTask task = translationTaskService.transitFromAny(id, TaskStatus.TRANSLATING,
-                TaskStatus.PARSED, TaskStatus.TRANSLATED, TaskStatus.REVIEW_DONE,
-                TaskStatus.MANUAL_REVIEW, TaskStatus.FAILED);
+        TranslationTask configured = translationTaskService.getById(id);
+        boolean enableReview = !ObjectUtils.isEmpty(configured.getEnableReview()) && configured.getEnableReview();
+        boolean enableSummary = !ObjectUtils.isEmpty(configured.getEnableSummary()) && configured.getEnableSummary();
+        translationTaskService.initAgentSteps(id, enableReview, enableSummary);
+        TranslationTask task = translationTaskService.transitFromAny(id, TaskStatus.AGENT_PROCESSING,
+                TaskStatus.PARSED, TaskStatus.AGENT_PROCESSING, TaskStatus.MANUAL_REVIEW, TaskStatus.FAILED);
         translationPipeline.translateAsync(id);
         Map<String, String> data = new LinkedHashMap<>();
         data.put("status", task.getStatus());

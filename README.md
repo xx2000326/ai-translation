@@ -100,7 +100,6 @@ source ai-translation-backend/src/main/resources/db/mysql-schema.sql
 # 示例（MySQL 客户端内）
 source ai-translation-backend/src/main/resources/db/mysql-migration-2026-06-05-segment-to-sentence.sql
 ```
-
 **PostgreSQL + pgvector（向量库）：**
 ```sql
 CREATE DATABASE ai_translation_vector;

@@ -20,7 +20,16 @@ const LOCALES = {
     'summary.progress.preparing': '正在生成风格指南…',
     'summary.progress.done': '风格统一已完成',
     'summary.progress.idle': '风格统一尚未开始',
-    'summary.status.running': '风格统一中…'
+    'summary.status.running': '风格统一中…',
+    'taskStep.status.translating': 'AI 翻译中…',
+    'taskStep.status.reviewing': 'AI 审校中，第 {round} 轮',
+    'taskStep.translate.settings': 'AI 翻译设置',
+    'taskStep.translate.model': '初翻译模型',
+    'taskStep.translate.modelPlaceholder': '选择模型',
+    'taskStep.translate.enableReview': 'AI 审校',
+    'taskStep.translate.reviewModel': '审校模型',
+    'taskStep.translate.start': '开始 AI 翻译',
+    'taskStep.translate.started': '已开始 AI 翻译'
   },
   en: {
     'translation.progress.title': 'Translation',
@@ -43,7 +52,16 @@ const LOCALES = {
     'summary.progress.preparing': 'Generating style guide…',
     'summary.progress.done': 'Style unification complete',
     'summary.progress.idle': 'Style unification not started yet',
-    'summary.status.running': 'Unifying style…'
+    'summary.status.running': 'Unifying style…',
+    'taskStep.status.translating': 'AI translating…',
+    'taskStep.status.reviewing': 'AI review, round {round}',
+    'taskStep.translate.settings': 'AI Translation Settings',
+    'taskStep.translate.model': 'Translation model',
+    'taskStep.translate.modelPlaceholder': 'Select model',
+    'taskStep.translate.enableReview': 'AI review',
+    'taskStep.translate.reviewModel': 'Review model',
+    'taskStep.translate.start': 'Start AI translation',
+    'taskStep.translate.started': 'AI translation started'
   }
 }
 

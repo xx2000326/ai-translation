@@ -70,10 +70,6 @@ CREATE TABLE IF NOT EXISTS translation_task (
     enable_summary TINYINT(1) DEFAULT 0 COMMENT '是否启用全文风格统一（汇总 Agent）',
     review_score INT COMMENT '审校综合评分',
     review_round INT COMMENT '审校轮次',
-    total_sentences INT NOT NULL DEFAULT 0 COMMENT '待翻译句子总数',
-    completed_sentences INT NOT NULL DEFAULT 0 COMMENT '已完成翻译句子数',
-    progress_phase VARCHAR(20) NOT NULL DEFAULT 'TRANSLATE' COMMENT '进度阶段（TRANSLATE/REVIEW/SUMMARY）',
-    review_sub_phase VARCHAR(20) COMMENT '审校子阶段（SCORING/RETRANSLATE）',
     source_file_name VARCHAR(255) COMMENT '源文件原始名称',
     source_file_key VARCHAR(255) COMMENT '源文件存储 key',
     source_file_type VARCHAR(20) COMMENT '源文件类型（FileType.name()）',
@@ -83,6 +79,27 @@ CREATE TABLE IF NOT EXISTS translation_task (
     INDEX idx_project_id (project_id),
     INDEX idx_customer_id (customer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='翻译任务表';
+
+CREATE TABLE IF NOT EXISTS translation_task_step (
+    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_id         BIGINT NOT NULL COMMENT '所属任务ID',
+    step_code       VARCHAR(32) NOT NULL COMMENT '步骤编码 TaskStepCode.name()',
+    order_no        INT NOT NULL COMMENT '展示与逻辑顺序',
+    status          VARCHAR(16) NOT NULL DEFAULT 'PENDING'
+                    COMMENT 'PENDING/RUNNING/DONE/SKIPPED/FAILED',
+    completed_count INT NOT NULL DEFAULT 0 COMMENT '已完成计数',
+    total_count     INT NOT NULL DEFAULT 0 COMMENT '总计数',
+    round_no        INT COMMENT '轮次（审校等多轮步骤）',
+    sub_step        VARCHAR(32) COMMENT '子步骤编码',
+    error_msg       MEDIUMTEXT COMMENT '失败原因',
+    started_at      TIMESTAMP NULL,
+    finished_at     TIMESTAMP NULL,
+    create_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_task_step (task_id, step_code),
+    INDEX idx_task_id (task_id),
+    INDEX idx_task_status (task_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='翻译任务步骤进度';
 
 CREATE TABLE IF NOT EXISTS translation_document (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

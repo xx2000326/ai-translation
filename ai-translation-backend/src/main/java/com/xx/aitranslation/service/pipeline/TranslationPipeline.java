@@ -12,8 +12,8 @@ import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.FileType;
 import com.xx.aitranslation.enums.ParseGranularity;
-import com.xx.aitranslation.enums.ProgressPhase;
 import com.xx.aitranslation.enums.TaskStatus;
+import com.xx.aitranslation.enums.TaskStepCode;
 import com.xx.aitranslation.enums.TranslationRole;
 import com.xx.aitranslation.enums.TranslationStyle;
 import com.xx.aitranslation.mapper.ProjectMapper;
@@ -71,6 +71,7 @@ public class TranslationPipeline {
      */
     @Async("taskExecutor")
     public void parseAsync(Long taskId) {
+        translationTaskService.startParseStep(taskId);
         try {
             TranslationTask task = translationTaskService.getById(taskId);
             FileType fileType = FileType.valueOf(task.getSourceFileType());
@@ -80,6 +81,7 @@ public class TranslationPipeline {
                 parsed = parserFactory.get(fileType).parse(in, task.getSourceLang(), granularity);
             }
             documentParseService.saveParsedDocument(taskId, task, parsed);
+            translationTaskService.completeParseStep(taskId);
             translationTaskService.transit(taskId, TaskStatus.PARSING, TaskStatus.PARSED);
         } catch (BizException e) {
             log.error("文档解析失败, taskId={}, code={}", taskId, e.getMessage());
@@ -101,7 +103,7 @@ public class TranslationPipeline {
 
             List<TranslationSentence> sentences = translationTaskService.listSentences(taskId);
             translateSentencesConcurrently(ctx, sentences);
-            translationTaskService.transit(taskId, null, TaskStatus.TRANSLATED);
+            translationTaskService.completeTranslateStep(taskId);
 
             if (ctx.enableReview) {
                 reviewLoop(ctx);
@@ -124,7 +126,7 @@ public class TranslationPipeline {
     private void translateSentencesConcurrently(TranslationContext ctx, List<TranslationSentence> sentences) {
         sentenceTranslationQueue.executeBatch(
                 ctx.taskId, sentences, (sent, advice) -> translateOne(ctx, sent, advice), null,
-                ProgressPhase.TRANSLATE);
+                TaskStepCode.TRANSLATE);
     }
 
     /**
@@ -167,7 +169,6 @@ public class TranslationPipeline {
      */
     private void reviewLoop(TranslationContext ctx) {
         for (int round = 1; round <= MAX_ROUND; round++) {
-            translationTaskService.transit(ctx.taskId, null, TaskStatus.REVIEWING);
             List<TranslationSentence> segs = translationTaskService.listSentences(ctx.taskId);
             int segTotal = segs.size();
             translationTaskService.initReviewScoringProgress(ctx.taskId, round, segTotal);
@@ -175,6 +176,7 @@ public class TranslationPipeline {
             ReviewResult result = reviewAgent.review(
                     segs, ctx.requirement, ctx.sourceLang, ctx.targetLang, ctx.reviewModel,
                     scored -> translationTaskService.updateReviewProgress(ctx.taskId, scored, segTotal));
+            translationTaskService.completeReviewScoringStep(ctx.taskId);
             Map<Integer, ReviewResult.SegmentReview> reviewByOrder = new HashMap<>();
             for (ReviewResult.SegmentReview r : result.segments()) {
                 reviewByOrder.put(r.orderNo(), r);
@@ -198,6 +200,7 @@ public class TranslationPipeline {
             translationTaskService.saveReviewMeta(ctx.taskId, minScore, round);
 
             if (ObjectUtils.isEmpty(flagged)) {
+                translationTaskService.completeReviewRetranslateStep(ctx.taskId);
                 break;
             }
 
@@ -208,11 +211,10 @@ public class TranslationPipeline {
                     flagged,
                     (seg, ignored) -> translateOne(ctx, seg, seg.getReviewAdvice()),
                     null,
-                    ProgressPhase.REVIEW,
+                    TaskStepCode.REVIEW_RETRANSLATE,
                     false);
+            translationTaskService.completeReviewRetranslateStep(ctx.taskId);
         }
-        translationTaskService.clearReviewSubPhase(ctx.taskId);
-        translationTaskService.transit(ctx.taskId, null, TaskStatus.REVIEW_DONE);
     }
 
     /**
@@ -234,9 +236,8 @@ public class TranslationPipeline {
                 ctx.tempGlossary)
                 : ctx.tempGlossary;
         int total = segs.size();
-        translationTaskService.initSummaryProgress(ctx.taskId, total);
-
-        Map<Integer, String> unified = summaryAgent.unify(
+        translationTaskService.startSummaryGuideStep(ctx.taskId);
+        String styleGuide = summaryAgent.extractStyleGuide(
                 segs,
                 ctx.requirement,
                 ctx.sourceLang,
@@ -244,6 +245,16 @@ public class TranslationPipeline {
                 ctx.roleDesc,
                 ctx.styleDesc,
                 glossary,
+                ctx.translateModel);
+        translationTaskService.completeSummaryGuideStep(ctx.taskId);
+        translationTaskService.initSummaryProgress(ctx.taskId, total);
+
+        Map<Integer, String> unified = summaryAgent.unifyWithStyleGuide(
+                segs,
+                styleGuide,
+                ctx.requirement,
+                ctx.sourceLang,
+                ctx.targetLang,
                 ctx.translateModel,
                 completed -> translationTaskService.updateSummaryProgress(ctx.taskId, completed, total));
 

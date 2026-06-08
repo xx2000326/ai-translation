@@ -13,8 +13,7 @@ const loading = ref(false)
 const saving = ref(false)
 
 // 解析结果已生成的所有状态（PARSED 及之后），用于"回看"已翻译/已完成任务的原文分段
-const PARSE_AVAILABLE = ['PARSED', 'TRANSLATING', 'TRANSLATED', 'REVIEWING', 'REVIEW_DONE',
-  'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED']
+const PARSE_AVAILABLE = ['PARSED', 'AGENT_PROCESSING', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED']
 
 const isParsing = computed(() => props.task.status === 'PARSING')
 // 是否已有解析结果可展示

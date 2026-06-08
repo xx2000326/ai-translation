@@ -2,7 +2,7 @@ package com.xx.aitranslation.service.pipeline;
 
 import com.xx.aitranslation.common.BizException;
 import com.xx.aitranslation.entity.TranslationSentence;
-import com.xx.aitranslation.enums.ProgressPhase;
+import com.xx.aitranslation.enums.TaskStepCode;
 import com.xx.aitranslation.service.TranslationTaskService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -22,8 +22,6 @@ import java.util.function.BiConsumer;
 
 /**
  * 句子级翻译全局有界队列：生产者 {@code put} 入队，固定数量虚拟线程 Worker {@code take} 消费。
- * <p>
- * 替代「为每句创建 CompletableFuture 并一次性提交线程池」模式，提供背压与跨任务 FIFO 调度。
  */
 @Slf4j
 @Service
@@ -63,21 +61,15 @@ public class SentenceTranslationQueue {
     }
 
     /**
-     * 提交一批句子翻译任务并阻塞等待全部完成。
-     *
-     * @param taskId        任务 ID
-     * @param sentences     待翻译句子列表
-     * @param translator    翻译动作（由 Pipeline 注入 translateOne）
-     * @param advice        审校建议，初翻传 null
-     * @param progressPhase 进度阶段，{@code null} 表示不更新进度
+     * @param progressStep 进度步骤，{@code null} 表示不更新进度
      */
     public void executeBatch(
             Long taskId,
             List<TranslationSentence> sentences,
             BiConsumer<TranslationSentence, String> translator,
             String advice,
-            ProgressPhase progressPhase) {
-        executeBatch(taskId, sentences, translator, advice, progressPhase, true);
+            TaskStepCode progressStep) {
+        executeBatch(taskId, sentences, translator, advice, progressStep, true);
     }
 
     public void executeBatch(
@@ -85,16 +77,14 @@ public class SentenceTranslationQueue {
             List<TranslationSentence> sentences,
             BiConsumer<TranslationSentence, String> translator,
             String advice,
-            ProgressPhase progressPhase,
+            TaskStepCode progressStep,
             boolean initProgress) {
         if (ObjectUtils.isEmpty(sentences)) {
             return;
         }
         int total = sentences.size();
-        if (!ObjectUtils.isEmpty(progressPhase) && initProgress) {
-            if (progressPhase == ProgressPhase.REVIEW) {
-                translationTaskService.initReviewProgress(taskId, total);
-            } else {
+        if (!ObjectUtils.isEmpty(progressStep) && initProgress) {
+            if (progressStep == TaskStepCode.TRANSLATE) {
                 translationTaskService.initTranslateProgress(taskId, total);
             }
         }
@@ -105,7 +95,7 @@ public class SentenceTranslationQueue {
 
         for (TranslationSentence sentence : sentences) {
             WorkItem item = new WorkItem(
-                    taskId, sentence, advice, translator, latch, completed, total, progressPhase, error);
+                    taskId, sentence, advice, translator, latch, completed, total, progressStep, error);
             try {
                 queue.put(item);
             } catch (InterruptedException e) {
@@ -141,11 +131,11 @@ public class SentenceTranslationQueue {
             log.warn("Sentence translation failed, taskId={}, orderNo={}: {}",
                     item.taskId(), item.sentence().getOrderNo(), e.getMessage());
         } finally {
-            if (!ObjectUtils.isEmpty(item.progressPhase())) {
+            if (!ObjectUtils.isEmpty(item.progressStep())) {
                 int done = item.completed().incrementAndGet();
-                if (item.progressPhase() == ProgressPhase.REVIEW) {
-                    translationTaskService.updateReviewProgress(item.taskId(), done, item.total());
-                } else {
+                if (item.progressStep() == TaskStepCode.REVIEW_RETRANSLATE) {
+                    translationTaskService.updateReviewRetranslateProgress(item.taskId(), done, item.total());
+                } else if (item.progressStep() == TaskStepCode.TRANSLATE) {
                     translationTaskService.updateTranslateProgress(item.taskId(), done, item.total());
                 }
             }
@@ -177,7 +167,7 @@ public class SentenceTranslationQueue {
             CountDownLatch latch,
             AtomicInteger completed,
             int total,
-            ProgressPhase progressPhase,
+            TaskStepCode progressStep,
             AtomicReference<Throwable> error) {
 
         static final WorkItem POISON = new WorkItem(

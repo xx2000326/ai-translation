@@ -1,13 +1,14 @@
 package com.xx.aitranslation.entity;
 
-import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.xx.aitranslation.dto.TaskStepDto;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 翻译任务实体，对应 MySQL translation_task 表。
@@ -69,19 +70,6 @@ public class TranslationTask {
     /** 审校轮次 */
     private Integer reviewRound;
 
-    /** 待翻译句子总数（初翻进度分母） */
-    private Integer totalSentences;
-
-    /** 已完成翻译句子数（初翻进度分子） */
-    private Integer completedSentences;
-
-    /** 进度阶段，存 {@link com.xx.aitranslation.enums.ProgressPhase} 的 name() */
-    @TableField(updateStrategy = FieldStrategy.NOT_NULL)
-    private String progressPhase;
-
-    /** 审校子阶段，存 {@link com.xx.aitranslation.enums.ReviewSubPhase} 的 name() */
-    private String reviewSubPhase;
-
     /** 源文件原始名称 */
     private String sourceFileName;
 
@@ -93,6 +81,10 @@ public class TranslationTask {
 
     /** 失败原因 */
     private String errorMsg;
+
+    /** 任务步骤进度（非表字段，详情接口填充） */
+    @TableField(exist = false)
+    private List<TaskStepDto> steps;
 
     private LocalDateTime createTime;
 

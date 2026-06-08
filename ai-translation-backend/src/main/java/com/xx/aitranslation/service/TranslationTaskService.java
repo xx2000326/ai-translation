@@ -9,9 +9,8 @@ import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.ParseGranularity;
-import com.xx.aitranslation.enums.ProgressPhase;
-import com.xx.aitranslation.enums.ReviewSubPhase;
 import com.xx.aitranslation.enums.TaskStatus;
+import com.xx.aitranslation.enums.TaskStepCode;
 import com.xx.aitranslation.mapper.ProjectMapper;
 import com.xx.aitranslation.mapper.TaskGlossaryMapper;
 import com.xx.aitranslation.mapper.TranslationTaskMapper;
@@ -30,10 +29,13 @@ public class TranslationTaskService {
     private static final String DEFAULT_REVIEW_MODEL = "deepseek-v4-flash";
     private static final String DEFAULT_SOURCE_LANG = "zh";
     private static final String DEFAULT_TARGET_LANG = "en";
+    private static final String SUB_STEP_SCORING = "SCORING";
+    private static final String SUB_STEP_RETRANSLATE = "RETRANSLATE";
 
     private final TranslationTaskMapper translationTaskMapper;
     private final ProjectMapper projectMapper;
     private final TaskGlossaryMapper taskGlossaryMapper;
+    private final TaskStepService taskStepService;
     private final RagService ragService;
     private final DocumentParseService documentParseService;
 
@@ -42,6 +44,7 @@ public class TranslationTaskService {
         if (ObjectUtils.isEmpty(task)) {
             throw new BizException("task.not.found");
         }
+        task.setSteps(taskStepService.listByTask(id));
         return task;
     }
 
@@ -84,6 +87,7 @@ public class TranslationTaskService {
     }
 
     public void fail(Long id, String msg) {
+        taskStepService.failRunningStep(id, msg);
         translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
                 .eq(TranslationTask::getId, id)
                 .set(TranslationTask::getStatus, TaskStatus.FAILED.name())
@@ -92,6 +96,7 @@ public class TranslationTaskService {
 
     public void clearParseResult(Long taskId) {
         documentParseService.clearParseResult(taskId);
+        taskStepService.resetParseStep(taskId);
     }
 
     public void updateSentence(TranslationSentence sentence) {
@@ -216,85 +221,81 @@ public class TranslationTaskService {
     }
 
     public void initTranslateProgress(Long taskId, int total) {
-        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
-                .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getProgressPhase, ProgressPhase.TRANSLATE.name())
-                .set(TranslationTask::getReviewSubPhase, null)
-                .set(TranslationTask::getTotalSentences, total)
-                .set(TranslationTask::getCompletedSentences, 0));
+        taskStepService.startStep(taskId, TaskStepCode.TRANSLATE, total);
     }
 
     public void initReviewScoringProgress(Long taskId, int round, int total) {
+        taskStepService.startStep(taskId, TaskStepCode.REVIEW_SCORE, total, round, SUB_STEP_SCORING);
         translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
                 .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getProgressPhase, ProgressPhase.REVIEW.name())
-                .set(TranslationTask::getReviewSubPhase, ReviewSubPhase.SCORING.name())
-                .set(TranslationTask::getReviewRound, round)
-                .set(TranslationTask::getTotalSentences, total)
-                .set(TranslationTask::getCompletedSentences, 0));
+                .set(TranslationTask::getReviewRound, round));
     }
 
     public void initReviewRetranslateProgress(Long taskId, int total) {
-        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
-                .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getProgressPhase, ProgressPhase.REVIEW.name())
-                .set(TranslationTask::getReviewSubPhase, ReviewSubPhase.RETRANSLATE.name())
-                .set(TranslationTask::getTotalSentences, total)
-                .set(TranslationTask::getCompletedSentences, 0));
-    }
-
-    /** @deprecated 使用 {@link #initReviewScoringProgress} */
-    public void initReviewProgress(Long taskId, int total) {
-        initReviewScoringProgress(taskId, 1, total);
+        TranslationTask task = translationTaskMapper.selectById(taskId);
+        int round = ObjectUtils.isEmpty(task) || ObjectUtils.isEmpty(task.getReviewRound()) ? 1 : task.getReviewRound();
+        taskStepService.startStep(taskId, TaskStepCode.REVIEW_RETRANSLATE, total, round, SUB_STEP_RETRANSLATE);
     }
 
     public void initSummaryProgress(Long taskId, int total) {
-        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
-                .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getProgressPhase, ProgressPhase.SUMMARY.name())
-                .set(TranslationTask::getReviewSubPhase, null)
-                .set(TranslationTask::getTotalSentences, total)
-                .set(TranslationTask::getCompletedSentences, 0));
+        taskStepService.startStep(taskId, TaskStepCode.SUMMARY_UNIFY, total);
     }
 
     public void updateTranslateProgress(Long taskId, int completed, int total) {
-        updatePhaseProgress(taskId, completed, total, ProgressPhase.TRANSLATE);
+        taskStepService.updateProgress(taskId, TaskStepCode.TRANSLATE, completed, total);
     }
 
     public void updateReviewProgress(Long taskId, int completed, int total) {
-        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
-                .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getProgressPhase, ProgressPhase.REVIEW.name())
-                .set(TranslationTask::getCompletedSentences, completed)
-                .set(TranslationTask::getTotalSentences, total));
+        taskStepService.updateProgress(taskId, TaskStepCode.REVIEW_SCORE, completed, total);
+    }
+
+    public void updateReviewRetranslateProgress(Long taskId, int completed, int total) {
+        taskStepService.updateProgress(taskId, TaskStepCode.REVIEW_RETRANSLATE, completed, total);
     }
 
     public void updateSummaryProgress(Long taskId, int completed, int total) {
-        updatePhaseProgress(taskId, completed, total, ProgressPhase.SUMMARY);
+        taskStepService.updateProgress(taskId, TaskStepCode.SUMMARY_UNIFY, completed, total);
     }
 
-    public void clearReviewSubPhase(Long taskId) {
-        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
-                .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getReviewSubPhase, null));
-    }
-
-    /** 风格统一完成后锁定 progress_phase 为 SUMMARY（列 NOT NULL） */
     public void markSummaryProgressDone(Long taskId) {
-        TranslationTask task = getById(taskId);
-        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
-                .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getProgressPhase, ProgressPhase.SUMMARY.name())
-                .set(TranslationTask::getReviewSubPhase, null)
-                .set(TranslationTask::getCompletedSentences, task.getTotalSentences()));
+        taskStepService.completeStep(taskId, TaskStepCode.SUMMARY_UNIFY);
     }
 
-    private void updatePhaseProgress(Long taskId, int completed, int total, ProgressPhase phase) {
-        translationTaskMapper.update(null, new LambdaUpdateWrapper<TranslationTask>()
-                .eq(TranslationTask::getId, taskId)
-                .set(TranslationTask::getProgressPhase, phase.name())
-                .set(TranslationTask::getCompletedSentences, completed)
-                .set(TranslationTask::getTotalSentences, total));
+    public void completeTranslateStep(Long taskId) {
+        taskStepService.completeStep(taskId, TaskStepCode.TRANSLATE);
+    }
+
+    public void completeReviewScoringStep(Long taskId) {
+        taskStepService.completeStep(taskId, TaskStepCode.REVIEW_SCORE);
+    }
+
+    public void completeReviewRetranslateStep(Long taskId) {
+        taskStepService.completeStep(taskId, TaskStepCode.REVIEW_RETRANSLATE);
+    }
+
+    public void startSummaryGuideStep(Long taskId) {
+        taskStepService.startStep(taskId, TaskStepCode.SUMMARY_GUIDE);
+    }
+
+    public void completeSummaryGuideStep(Long taskId) {
+        taskStepService.completeStep(taskId, TaskStepCode.SUMMARY_GUIDE);
+    }
+
+    public void startParseStep(Long taskId) {
+        taskStepService.resetParseStep(taskId);
+        taskStepService.startStep(taskId, TaskStepCode.PARSE);
+    }
+
+    public void completeParseStep(Long taskId) {
+        taskStepService.completeStep(taskId, TaskStepCode.PARSE);
+    }
+
+    public void failParseStep(Long taskId, String msg) {
+        taskStepService.failStep(taskId, TaskStepCode.PARSE, msg);
+    }
+
+    public void initAgentSteps(Long taskId, boolean enableReview, boolean enableSummary) {
+        taskStepService.initAgentSteps(taskId, enableReview, enableSummary);
     }
 
     public TranslationTask saveFile(Long taskId, String fileName, String fileKey, String fileType) {

@@ -8,6 +8,7 @@ import StepParse from './StepParse.vue'
 import StepTranslate from './StepTranslate.vue'
 import StepReview from './StepReview.vue'
 import StepExport from './StepExport.vue'
+import { findStep, isAgentProcessing, STEP } from '../../taskStepUtil.js'
 
 const props = defineProps({
   taskId: { type: [Number, String], required: true },
@@ -19,9 +20,7 @@ const task = ref(null)
 const loading = ref(false)
 let timer = null
 
-// 进行中状态（需要轮询）。含翻译/审校的所有在途中间态（TRANSLATED / REVIEW_DONE），
-// 保证从初翻到人工审校之间持续轮询，避免中间态被误判为停止。
-const RUNNING_STATUS = ['PARSING', 'TRANSLATING', 'TRANSLATED', 'REVIEWING', 'REVIEW_DONE']
+const RUNNING_STATUS = ['PARSING', 'AGENT_PROCESSING']
 // 稳定态（停止轮询）
 const STABLE_STATUS = ['PARSED', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED', 'FAILED']
 
@@ -34,10 +33,7 @@ function statusToStep(status) {
     case 'PARSING':
     case 'PARSED':
       return 1
-    case 'TRANSLATING':
-    case 'TRANSLATED':
-    case 'REVIEWING':
-    case 'REVIEW_DONE':
+    case 'AGENT_PROCESSING':
       return 2
     case 'MANUAL_REVIEW':
       return 3
@@ -57,19 +53,22 @@ function isPastAiPhase(status, taskData) {
   if (status === 'MANUAL_REVIEW' || status === 'COMPLETED' || status === 'EXPORTED') {
     return true
   }
-  // 开启风格统一时，REVIEW_DONE / TRANSLATED 之后还有 summary 阶段，须等 MANUAL_REVIEW
-  if (taskData?.enableSummary && (status === 'REVIEW_DONE' || status === 'TRANSLATED')) {
+
+  const unifyStep = taskData ? findStep(taskData, STEP.SUMMARY_UNIFY) : null
+  if (unifyStep && (unifyStep.status === 'RUNNING' || unifyStep.status === 'PENDING')) {
     return false
   }
-  if (taskData?.progressPhase === 'SUMMARY' && status !== 'MANUAL_REVIEW' && status !== 'COMPLETED' && status !== 'EXPORTED') {
-    return false
+
+  if (taskData?.enableSummary && isAgentProcessing(status)) {
+    const translateStep = findStep(taskData, STEP.TRANSLATE)
+    const scoreStep = findStep(taskData, STEP.REVIEW_SCORE)
+    if (translateStep?.status === 'DONE' && (!scoreStep || scoreStep.status === 'DONE' || scoreStep.status === 'SKIPPED')) {
+      if (unifyStep && unifyStep.status !== 'DONE' && unifyStep.status !== 'SKIPPED') {
+        return false
+      }
+    }
   }
-  if (status === 'REVIEW_DONE') {
-    return true
-  }
-  if (status === 'TRANSLATED' && taskData && !taskData.enableReview) {
-    return true
-  }
+
   return false
 }
 
@@ -79,7 +78,7 @@ function applyStatusStep(data) {
   const target = statusToStep(status)
 
   // 新一轮翻译开始，允许再次自动跳转
-  if (status === 'TRANSLATING' && prev !== 'TRANSLATING') {
+  if (status === 'AGENT_PROCESSING' && prev !== 'AGENT_PROCESSING') {
     hasAutoAdvancedToReview.value = false
   }
 
