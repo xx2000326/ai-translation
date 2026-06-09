@@ -24,6 +24,7 @@ import com.xx.aitranslation.service.chunk.ChunkParseAdapter;
 import com.xx.aitranslation.service.chunk.config.ChunkConfig;
 import com.xx.aitranslation.service.chunk.config.ChunkStrategyType;
 import com.xx.aitranslation.service.chunk.model.ChunkResult;
+import com.xx.aitranslation.service.chunk.strategy.TitleChunkStrategy;
 import com.xx.aitranslation.service.chunk.support.TextSplitSupport;
 import com.xx.aitranslation.service.parse.ParsedDocument;
 import com.xx.aitranslation.service.storage.FileStorageService;
@@ -103,10 +104,14 @@ public class TranslationPipeline {
      * 由任务配置构建拆分引擎配置；为空字段交由全局默认值兜底。
      */
     private ChunkConfig buildChunkConfig(TranslationTask task) {
+        ChunkStrategyType strategyType = ChunkStrategyType.parse(task.getChunkStrategy());
         ChunkConfig.ChunkConfigBuilder builder = ChunkConfig.builder()
-                .strategy(ChunkStrategyType.parse(task.getChunkStrategy()));
+                .strategy(strategyType);
         if (!ObjectUtils.isEmpty(task.getChunkSize())) {
             builder.chunkSize(task.getChunkSize());
+        } else if (strategyType == ChunkStrategyType.TITLE || strategyType == null) {
+            // AUTO 在 parse 后为 null；Word 等路径常命中 TITLE，默认章节块上限 200
+            builder.chunkSize(TitleChunkStrategy.DEFAULT_SECTION_MAX_SIZE);
         }
         if (!ObjectUtils.isEmpty(task.getChunkOverlap())) {
             builder.overlap(task.getChunkOverlap());

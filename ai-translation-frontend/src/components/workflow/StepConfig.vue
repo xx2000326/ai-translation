@@ -4,6 +4,7 @@ import { message } from 'ant-design-vue'
 import { DeleteOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import { api } from '../../api.js'
 import { store } from '../../store.js'
+import { t } from '../../i18n.js'
 
 const props = defineProps({
   task: { type: Object, required: true }
@@ -28,7 +29,9 @@ const form = ref({
   sourceLang: props.task.sourceLang || undefined,
   targetLang: props.task.targetLang || undefined,
   chunkStrategy: props.task.chunkStrategy || 'AUTO',
-  chunkSize: props.task.chunkSize || 1000,
+  chunkSize: props.task.chunkSize ?? (
+    ['TITLE', 'AUTO'].includes(props.task.chunkStrategy || 'AUTO') ? 200 : 1000
+  ),
   overlap: props.task.chunkOverlap || 100,
   parentSize: props.task.chunkParentSize || 5000,
   childSize: props.task.chunkChildSize || 1000,
@@ -58,8 +61,16 @@ async function loadStrategies() {
   }
 }
 
-// 单块字符数：仅固定长度策略生效
-const showChunkSize = computed(() => form.value.chunkStrategy === 'FIXED_SIZE')
+// 单块/章节块字符数：固定长度、标题层级（含自动）生效
+const showChunkSize = computed(() =>
+  ['FIXED_SIZE', 'TITLE', 'AUTO'].includes(form.value.chunkStrategy)
+)
+const chunkSizeLabel = computed(() =>
+  form.value.chunkStrategy === 'FIXED_SIZE' ? t('chunk.fixedSizeMax') : t('chunk.sectionMaxSize')
+)
+const chunkSizeMin = computed(() =>
+  form.value.chunkStrategy === 'FIXED_SIZE' ? 100 : 50
+)
 // 重叠字符数：固定长度 + 父子层级（含自动，可能命中超大文件层级拆分）生效
 const showOverlap = computed(() =>
   ['FIXED_SIZE', 'HIERARCHICAL', 'AUTO'].includes(form.value.chunkStrategy)
@@ -225,9 +236,9 @@ onMounted(() => {
                 <a-col v-if="showChunkSize" :span="12">
                   <a-input-number
                     v-model:value="form.chunkSize"
-                    :min="100"
+                    :min="chunkSizeMin"
                     :step="100"
-                    addon-before="单块字符数"
+                    :addon-before="chunkSizeLabel"
                     style="width: 100%"
                   />
                 </a-col>

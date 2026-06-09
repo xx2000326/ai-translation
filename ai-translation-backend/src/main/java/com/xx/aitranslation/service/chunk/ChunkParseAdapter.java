@@ -62,8 +62,9 @@ public class ChunkParseAdapter {
             ParsedSentence sentence = new ParsedSentence(0, chunk.getId(), content);
             if (structural) {
                 paragraphs.add(new ParsedParagraph(orderNo, chunk.getId(), "chunk", content,
-                        List.of(sentence), titleById.get(chunk.getId()),
-                        resolveParentTitle(chunk, titleById, parentPreviewById), chunk.getLevel()));
+                        List.of(sentence), extractTitle(chunk),
+                        resolveParentTitle(chunk, titleById, parentPreviewById), chunk.getLevel(),
+                        extractMetadata(chunk, "sectionId"), extractMetadata(chunk, "sectionTitle")));
             } else {
                 paragraphs.add(new ParsedParagraph(orderNo, chunk.getId(), "chunk", content, List.of(sentence)));
             }
@@ -154,6 +155,15 @@ public class ChunkParseAdapter {
         }
         Object title = metadata.get("title");
         return title == null ? null : title.toString();
+    }
+
+    private String extractMetadata(DocumentChunk chunk, String key) {
+        Map<String, Object> metadata = chunk.getMetadata();
+        if (ObjectUtils.isEmpty(metadata)) {
+            return null;
+        }
+        Object value = metadata.get(key);
+        return value == null ? null : value.toString();
     }
 
     /**

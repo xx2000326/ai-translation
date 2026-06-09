@@ -34,6 +34,12 @@ public class TranslationParagraph {
     /** 高级拆分：父标题（层级父章节标题）。 */
     private String parentTitle;
 
+    /** 高级拆分：章节节点 ID（Part 块共享，聚合键）。 */
+    private String sectionId;
+
+    /** 高级拆分：原章节标题（不含 -PartN）。 */
+    private String sectionTitle;
+
     /** 高级拆分：章节层级。 */
     @TableField("node_level")
     private Integer level;

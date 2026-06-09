@@ -42,7 +42,10 @@ const LOCALES = {
     'review.advice': '审校建议',
     'review.saveSegment': '保存本段',
     'review.savedAll': '全部译文已保存',
-    'review.taskCompleted': '任务已完成'
+    'review.taskCompleted': '任务已完成',
+    'chunk.fixedSizeMax': '单块字符数',
+    'chunk.sectionMaxSize': '章节块字符上限',
+    'chunk.sectionMaxSize.hint': '按标题拆分后，单章节超过该字符数将切分为 Part1/Part2…'
   },
   en: {
     'translation.progress.title': 'Translation',
@@ -87,7 +90,10 @@ const LOCALES = {
     'review.advice': 'Review advice',
     'review.saveSegment': 'Save segment',
     'review.savedAll': 'All translations saved',
-    'review.taskCompleted': 'Task completed'
+    'review.taskCompleted': 'Task completed',
+    'chunk.fixedSizeMax': 'Chunk size',
+    'chunk.sectionMaxSize': 'Section max chars',
+    'chunk.sectionMaxSize.hint': 'After title-based split, sections exceeding this limit become Part1/Part2…'
   }
 }
 

@@ -128,6 +128,8 @@ CREATE TABLE IF NOT EXISTS translation_paragraph (
     chunk_id VARCHAR(64) COMMENT '高级拆分 Chunk 唯一标识（文档内）',
     title VARCHAR(512) COMMENT '高级拆分章节标题（或 标题-PartN）',
     parent_title VARCHAR(512) COMMENT '高级拆分父标题（层级父章节标题）',
+    section_id VARCHAR(64) COMMENT '章节节点 ID（Part 块共享，聚合键）',
+    section_title VARCHAR(512) COMMENT '原章节标题（不含 -PartN）',
     node_level INT COMMENT '高级拆分章节层级（根级正文=0）',
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_document_id (document_id)

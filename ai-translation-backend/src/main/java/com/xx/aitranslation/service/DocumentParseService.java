@@ -81,6 +81,8 @@ public class DocumentParseService {
                 paragraph.setChunkId(para.paraPosition());
                 paragraph.setTitle(para.title());
                 paragraph.setParentTitle(para.parentTitle());
+                paragraph.setSectionId(para.sectionId());
+                paragraph.setSectionTitle(para.sectionTitle());
                 paragraph.setLevel(para.level());
             }
             paragraphMapper.insert(paragraph);
@@ -176,6 +178,8 @@ public class DocumentParseService {
             if (!ObjectUtils.isEmpty(para)) {
                 view.setTitle(para.getTitle());
                 view.setParentTitle(para.getParentTitle());
+                view.setSectionId(para.getSectionId());
+                view.setSectionTitle(para.getSectionTitle());
                 view.setLevel(para.getLevel());
             }
             view.setOriginalText(sent.getOriginalText());

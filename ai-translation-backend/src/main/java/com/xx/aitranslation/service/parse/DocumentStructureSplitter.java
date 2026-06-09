@@ -1,5 +1,6 @@
 package com.xx.aitranslation.service.parse;
 
+import com.xx.aitranslation.service.chunk.support.SectionPartSplitter;
 import org.springframework.util.ObjectUtils;
 
 import java.util.ArrayDeque;
@@ -83,7 +84,7 @@ final class DocumentStructureSplitter {
             chunks.add(new DocumentChunk(nextId(seq), node.title(), parentTitle, node.level(), content));
             return;
         }
-        List<String> parts = splitIntoParts(node.paragraphs(), maxChunkSize);
+        List<String> parts = SectionPartSplitter.splitByParagraphs(node.paragraphs(), maxChunkSize);
         int partNo = 1;
         for (String part : parts) {
             String partTitle = (ObjectUtils.isEmpty(node.title()) ? "" : node.title()) + "-Part" + partNo;
@@ -101,42 +102,6 @@ final class DocumentStructureSplitter {
             parent = parent.parent();
         }
         return parent == null ? null : parent.title();
-    }
-
-    /**
-     * 按段落贪心打包为不超过 maxChunkSize 的若干 Part；单段超长则按字符硬切。
-     */
-    private static List<String> splitIntoParts(List<String> paragraphs, int maxChunkSize) {
-        List<String> parts = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        for (String para : paragraphs) {
-            if (ObjectUtils.isEmpty(para)) {
-                continue;
-            }
-            if (para.length() > maxChunkSize) {
-                flush(current, parts);
-                for (int i = 0; i < para.length(); i += maxChunkSize) {
-                    parts.add(para.substring(i, Math.min(para.length(), i + maxChunkSize)));
-                }
-                continue;
-            }
-            if (current.length() > 0 && current.length() + para.length() + 1 > maxChunkSize) {
-                flush(current, parts);
-            }
-            if (current.length() > 0) {
-                current.append('\n');
-            }
-            current.append(para);
-        }
-        flush(current, parts);
-        return parts;
-    }
-
-    private static void flush(StringBuilder buffer, List<String> parts) {
-        if (buffer.length() > 0) {
-            parts.add(buffer.toString());
-            buffer.setLength(0);
-        }
     }
 
     private static String nextId(int[] seq) {
