@@ -9,10 +9,13 @@
 - **多模型路由**：支持阿里云 DashScope（通义千问）、DeepSeek 等多模型按需切换
 - **RAG 翻译记忆**：基于 PGVector 向量检索，复用历史翻译片段，保持风格一致
 - **术语库管理**：项目级术语绑定，翻译时强制应用领域专属术语
-- **文档格式解析**：支持 `.txt`、`.docx`、`.html` 文件上传与段落级翻译
+- **文档格式解析**：支持 `.txt`、`.docx`、`.html` 文件上传与句子级翻译（Okapi + SRX 分句）
 - **翻译流水线**：`译前准备 → AI 翻译 → AI 审校 → 人工审核 → 导出` 全链路
 - **多存储支持**：本地磁盘 / MinIO 对象存储二选一
 - **国际化**：后端错误信息支持中英双语（`messages.properties`）
+
+> 📖 **完整工作流说明（HTML）**：[doc/workflow/translation-workflow.html](doc/workflow/translation-workflow.html) — 浏览器直接打开，含业务流、状态机与技术附录。  
+> 📖 **AI 翻译阶段深度解析**：[doc/workflow/ai-translation-phase.html](doc/workflow/ai-translation-phase.html) — 初翻 / 审校循环 / 风格统一 / RAG / 并发编排。
 
 ---
 
@@ -25,8 +28,8 @@
 | 向量存储 | PostgreSQL + pgvector |
 | 业务数据库 | MySQL 8.0 + MyBatis-Plus 3.5 |
 | 文件存储 | 本地磁盘 / MinIO |
-| 文档解析 | Apache POI（docx）/ Jsoup（html）|
-| 前端框架 | Vue 3 + Vite + Element Plus |
+| 文档解析 | Okapi（txt/html）+ Apache POI（docx）+ SRX 分句 |
+| 前端框架 | Vue 3 + Vite + Ant Design Vue |
 
 ---
 
@@ -60,7 +63,9 @@ ai-translation/
 │       ├── api.js                   # 接口封装
 │       ├── App.vue
 │       └── store.js
-└── src/doc/                         # 设计文档
+└── doc/                             # 设计文档与工作流 HTML
+    ├── V1/                          # V1 实现说明
+    └── workflow/                    # 翻译工作流可视化文档（浏览器打开 .html）
 ```
 
 ---
@@ -95,7 +100,6 @@ source ai-translation-backend/src/main/resources/db/mysql-schema.sql
 # 示例（MySQL 客户端内）
 source ai-translation-backend/src/main/resources/db/mysql-migration-2026-06-05-segment-to-sentence.sql
 ```
-
 **PostgreSQL + pgvector（向量库）：**
 ```sql
 CREATE DATABASE ai_translation_vector;

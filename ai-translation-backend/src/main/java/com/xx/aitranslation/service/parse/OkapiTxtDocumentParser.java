@@ -1,6 +1,7 @@
 package com.xx.aitranslation.service.parse;
 
 import com.xx.aitranslation.enums.FileType;
+import com.xx.aitranslation.enums.ParseGranularity;
 import net.sf.okapi.common.LocaleId;
 import org.springframework.stereotype.Component;
 
@@ -18,7 +19,7 @@ import java.util.List;
 public class OkapiTxtDocumentParser implements DocumentParser {
 
     @Override
-    public ParsedDocument parse(InputStream in, String sourceLang) throws Exception {
+    public ParsedDocument parse(InputStream in, String sourceLang, ParseGranularity granularity) throws Exception {
         LocaleId locale = ParseLocaleHelper.toLocaleId(sourceLang);
         List<ParsedParagraph> paragraphs = new ArrayList<>();
         int paraOrder = 0;
@@ -29,7 +30,7 @@ public class OkapiTxtDocumentParser implements DocumentParser {
                 if (ParseTextUtils.isNonTranslationText(text)) {
                     continue;
                 }
-                List<ParsedSentence> sentences = ParseSrxLoader.segment(locale, text);
+                List<ParsedSentence> sentences = ParseSrxLoader.split(locale, text, granularity);
                 paragraphs.add(new ParsedParagraph(
                         paraOrder++,
                         String.valueOf(paraOrder - 1),

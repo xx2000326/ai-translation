@@ -13,6 +13,15 @@ public class SentenceView {
 
     private String blockType;
 
+    /** 高级拆分：章节标题（或 标题-PartN）。 */
+    private String title;
+
+    /** 高级拆分：父标题（层级父章节标题）。 */
+    private String parentTitle;
+
+    /** 高级拆分：章节层级。 */
+    private Integer level;
+
     private String originalText;
 
     private String translatedText;

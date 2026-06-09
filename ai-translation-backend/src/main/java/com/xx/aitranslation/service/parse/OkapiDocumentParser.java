@@ -1,5 +1,6 @@
 package com.xx.aitranslation.service.parse;
 
+import com.xx.aitranslation.enums.ParseGranularity;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.okapi.common.Event;
 import net.sf.okapi.common.ISegmenter;
@@ -7,7 +8,6 @@ import net.sf.okapi.common.LocaleId;
 import net.sf.okapi.common.filters.IFilter;
 import net.sf.okapi.common.resource.ITextUnit;
 import net.sf.okapi.common.resource.RawDocument;
-import org.springframework.util.ObjectUtils;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -23,7 +23,7 @@ abstract class OkapiDocumentParser implements DocumentParser {
     protected abstract IFilter createFilter();
 
     @Override
-    public ParsedDocument parse(InputStream in, String sourceLang) throws Exception {
+    public ParsedDocument parse(InputStream in, String sourceLang, ParseGranularity granularity) throws Exception {
         LocaleId locale = ParseLocaleHelper.toLocaleId(sourceLang);
         ISegmenter segmenter = ParseSrxLoader.createSegmenter(locale);
         List<ParsedParagraph> paragraphs = new ArrayList<>();
@@ -44,8 +44,13 @@ abstract class OkapiDocumentParser implements DocumentParser {
                 if (ParseTextUtils.isNonTranslationText(tuText)) {
                     continue;
                 }
-                tu.createSourceSegmentation(segmenter);
-                List<ParsedSentence> sentences = ParseSrxLoader.fromTextUnit(tu, tuText);
+                List<ParsedSentence> sentences;
+                if (granularity == ParseGranularity.PARAGRAPH || granularity == ParseGranularity.STRUCTURE) {
+                    sentences = ParseSrxLoader.singleSentence(tuText);
+                } else {
+                    tu.createSourceSegmentation(segmenter);
+                    sentences = ParseSrxLoader.fromTextUnit(tu, tuText);
+                }
                 paragraphs.add(new ParsedParagraph(
                         paraOrder++,
                         tu.getId(),

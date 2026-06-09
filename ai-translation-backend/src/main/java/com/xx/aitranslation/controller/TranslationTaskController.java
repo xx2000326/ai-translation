@@ -13,9 +13,9 @@ import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.ExportFormat;
-import com.xx.aitranslation.enums.FileType;
 import com.xx.aitranslation.enums.TaskStatus;
 import com.xx.aitranslation.service.DocumentParseService;
+import com.xx.aitranslation.service.chunk.config.ChunkFileType;
 import com.xx.aitranslation.service.TranslationTaskService;
 import com.xx.aitranslation.service.export.DocumentExporter;
 import com.xx.aitranslation.service.export.DocumentExporterFactory;
@@ -81,7 +81,7 @@ public class TranslationTaskController {
             throw new BizException("file.empty");
         }
         String fileName = file.getOriginalFilename();
-        FileType fileType = FileType.fromFileName(fileName);
+        ChunkFileType fileType = ChunkFileType.fromFileName(fileName);
         try {
             String key = fileStorageService.upload(file.getInputStream(), fileName, file.getContentType());
             translationTaskService.saveFile(id, fileName, key, fileType.name());
@@ -110,9 +110,12 @@ public class TranslationTaskController {
     public Result<Map<String, String>> translate(@PathVariable Long id, @RequestBody StartTranslateRequest request) {
         translationTaskService.saveTranslateConfig(id, request.getModel(),
                 request.getEnableReview(), request.getReviewModel());
-        TranslationTask task = translationTaskService.transitFromAny(id, TaskStatus.TRANSLATING,
-                TaskStatus.PARSED, TaskStatus.TRANSLATED, TaskStatus.REVIEW_DONE,
-                TaskStatus.MANUAL_REVIEW, TaskStatus.FAILED);
+        TranslationTask configured = translationTaskService.getById(id);
+        boolean enableReview = !ObjectUtils.isEmpty(configured.getEnableReview()) && configured.getEnableReview();
+        boolean enableSummary = !ObjectUtils.isEmpty(configured.getEnableSummary()) && configured.getEnableSummary();
+        translationTaskService.initAgentSteps(id, enableReview, enableSummary);
+        TranslationTask task = translationTaskService.transitFromAny(id, TaskStatus.AGENT_PROCESSING,
+                TaskStatus.PARSED, TaskStatus.AGENT_PROCESSING, TaskStatus.MANUAL_REVIEW, TaskStatus.FAILED);
         translationPipeline.translateAsync(id);
         Map<String, String> data = new LinkedHashMap<>();
         data.put("status", task.getStatus());

@@ -61,22 +61,50 @@ CREATE TABLE IF NOT EXISTS translation_task (
     description MEDIUMTEXT COMMENT '任务描述',
     source_lang VARCHAR(20) COMMENT '源语言 code',
     target_lang VARCHAR(20) COMMENT '目标语言 code',
+    parse_granularity VARCHAR(20) DEFAULT 'SENTENCE' COMMENT '（已废弃，保留兼容）解析拆分粒度',
+    chunk_strategy VARCHAR(20) DEFAULT 'AUTO' COMMENT '文档拆分策略（ChunkStrategyType.name()，AUTO 自动）',
+    chunk_size INT DEFAULT 1000 COMMENT '固定长度策略单块字符数',
+    chunk_overlap INT DEFAULT 100 COMMENT '相邻块重叠字符数',
+    chunk_parent_size INT DEFAULT 5000 COMMENT '层级策略父块字符数',
+    chunk_child_size INT DEFAULT 1000 COMMENT '层级策略子块字符数',
     enable_glossary TINYINT(1) DEFAULT 0 COMMENT '是否启用术语库',
     enable_history TINYINT(1) DEFAULT 0 COMMENT '是否启用历史/RAG 记忆',
     translate_model VARCHAR(50) COMMENT '翻译模型 code',
     enable_review TINYINT(1) DEFAULT 0 COMMENT '是否启用 AI 审校',
     review_model VARCHAR(50) COMMENT '审校模型 code',
+    enable_summary TINYINT(1) DEFAULT 0 COMMENT '是否启用全文风格统一（汇总 Agent）',
     review_score INT COMMENT '审校综合评分',
     review_round INT COMMENT '审校轮次',
     source_file_name VARCHAR(255) COMMENT '源文件原始名称',
     source_file_key VARCHAR(255) COMMENT '源文件存储 key',
-    source_file_type VARCHAR(20) COMMENT '源文件类型（FileType.name()）',
+    source_file_type VARCHAR(20) COMMENT '源文件类型（ChunkFileType.name()）',
     error_msg MEDIUMTEXT COMMENT '失败原因',
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_project_id (project_id),
     INDEX idx_customer_id (customer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='翻译任务表';
+
+CREATE TABLE IF NOT EXISTS translation_task_step (
+    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_id         BIGINT NOT NULL COMMENT '所属任务ID',
+    step_code       VARCHAR(32) NOT NULL COMMENT '步骤编码 TaskStepCode.name()',
+    order_no        INT NOT NULL COMMENT '展示与逻辑顺序',
+    status          VARCHAR(16) NOT NULL DEFAULT 'PENDING'
+                    COMMENT 'PENDING/RUNNING/DONE/SKIPPED/FAILED',
+    completed_count INT NOT NULL DEFAULT 0 COMMENT '已完成计数',
+    total_count     INT NOT NULL DEFAULT 0 COMMENT '总计数',
+    round_no        INT COMMENT '轮次（审校等多轮步骤）',
+    sub_step        VARCHAR(32) COMMENT '子步骤编码',
+    error_msg       MEDIUMTEXT COMMENT '失败原因',
+    started_at      TIMESTAMP NULL,
+    finished_at     TIMESTAMP NULL,
+    create_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_task_step (task_id, step_code),
+    INDEX idx_task_id (task_id),
+    INDEX idx_task_status (task_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='翻译任务步骤进度';
 
 CREATE TABLE IF NOT EXISTS translation_document (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -95,8 +123,12 @@ CREATE TABLE IF NOT EXISTS translation_paragraph (
     document_id BIGINT NOT NULL COMMENT '所属文档ID',
     order_no INT NOT NULL COMMENT '段落顺序号',
     para_position VARCHAR(128) COMMENT '解析器定位（Okapi tu id 等）',
-    para_type VARCHAR(50) COMMENT '段落类型',
+    para_type VARCHAR(50) COMMENT '段落类型（paragraph / chunk）',
     original_text MEDIUMTEXT COMMENT '段落原文（句子拼接）',
+    chunk_id VARCHAR(64) COMMENT '高级拆分 Chunk 唯一标识（文档内）',
+    title VARCHAR(512) COMMENT '高级拆分章节标题（或 标题-PartN）',
+    parent_title VARCHAR(512) COMMENT '高级拆分父标题（层级父章节标题）',
+    node_level INT COMMENT '高级拆分章节层级（根级正文=0）',
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_document_id (document_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='翻译段落表';

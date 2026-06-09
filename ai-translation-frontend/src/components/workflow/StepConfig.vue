@@ -10,20 +10,64 @@ const props = defineProps({
 })
 const emit = defineEmits(['next'])
 
+// 文档拆分策略（与拆分引擎 ChunkStrategyType 对齐）
+const STRATEGY_LABELS = {
+  AUTO: '自动选择（按文件类型）',
+  FIXED_SIZE: '固定长度',
+  PARAGRAPH: '按段落',
+  SENTENCE: '按句子',
+  MARKDOWN: '按 Markdown 标题',
+  TITLE: '按标题层级（Word/PDF）',
+  HIERARCHICAL: '父子层级（超大文件）'
+}
+const ACCEPT = '.txt,.text,.md,.markdown,.html,.htm,.pdf,.doc,.docx'
+
 const form = ref({
   requirement: props.task.requirement || '',
   description: props.task.description || '',
   sourceLang: props.task.sourceLang || undefined,
   targetLang: props.task.targetLang || undefined,
+  chunkStrategy: props.task.chunkStrategy || 'AUTO',
+  chunkSize: props.task.chunkSize || 1000,
+  overlap: props.task.chunkOverlap || 100,
+  parentSize: props.task.chunkParentSize || 5000,
+  childSize: props.task.chunkChildSize || 1000,
   enableGlossary: !!props.task.enableGlossary,
   enableHistory: !!props.task.enableHistory,
   translateModel: props.task.translateModel || undefined,
   enableReview: !!props.task.enableReview,
-  reviewModel: props.task.reviewModel || 'deepseek-chat'
+  reviewModel: props.task.reviewModel || 'deepseek-v4-flash',
+  enableSummary: !!props.task.enableSummary
 })
 
 const langOptions = computed(() => store.languages.map((l) => ({ value: l.code, label: l.label })))
 const modelOptions = computed(() => store.models.map((m) => ({ value: m, label: m })))
+
+// 拆分策略下拉项（含 AUTO，其余由后端返回）
+const strategyOptions = ref([{ value: 'AUTO', label: STRATEGY_LABELS.AUTO }])
+
+async function loadStrategies() {
+  try {
+    const names = await api.getChunkStrategies()
+    strategyOptions.value = [
+      { value: 'AUTO', label: STRATEGY_LABELS.AUTO },
+      ...names.map((n) => ({ value: n, label: STRATEGY_LABELS[n] || n }))
+    ]
+  } catch (e) {
+    message.error(e.message)
+  }
+}
+
+// 单块字符数：仅固定长度策略生效
+const showChunkSize = computed(() => form.value.chunkStrategy === 'FIXED_SIZE')
+// 重叠字符数：固定长度 + 父子层级（含自动，可能命中超大文件层级拆分）生效
+const showOverlap = computed(() =>
+  ['FIXED_SIZE', 'HIERARCHICAL', 'AUTO'].includes(form.value.chunkStrategy)
+)
+// 父块/子块字符数：父子层级（含自动）生效
+const showHierarchicalParams = computed(
+  () => form.value.chunkStrategy === 'AUTO' || form.value.chunkStrategy === 'HIERARCHICAL'
+)
 
 // 上传文件
 const uploadedFileName = ref(props.task.sourceFileName || '')
@@ -112,11 +156,17 @@ async function saveAndParse() {
       description: form.value.description,
       sourceLang: form.value.sourceLang,
       targetLang: form.value.targetLang,
+      chunkStrategy: form.value.chunkStrategy,
+      chunkSize: form.value.chunkSize,
+      overlap: form.value.overlap,
+      parentSize: form.value.parentSize,
+      childSize: form.value.childSize,
       enableGlossary: form.value.enableGlossary,
       enableHistory: form.value.enableHistory,
       translateModel: form.value.translateModel,
       enableReview: form.value.enableReview,
-      reviewModel: form.value.reviewModel
+      reviewModel: form.value.reviewModel,
+      enableSummary: form.value.enableSummary
     })
     if (!uploadedFileName.value) {
       message.success('配置已保存，请上传待翻译文件后点击解析')
@@ -124,7 +174,8 @@ async function saveAndParse() {
     }
     await api.parseTask(props.task.id)
     message.success('配置已保存，开始解析')
-    emit('next')
+    // 前往「解析与校对」步骤（不要跳过它）
+    emit('next', 1)
   } catch (e) {
     message.error(e.message)
   } finally {
@@ -132,7 +183,10 @@ async function saveAndParse() {
   }
 }
 
-onMounted(loadGlossary)
+onMounted(() => {
+  loadGlossary()
+  loadStrategies()
+})
 </script>
 
 <template>
@@ -159,6 +213,60 @@ onMounted(loadGlossary)
                 </a-form-item>
               </a-col>
             </a-row>
+            <a-form-item label="拆分方式">
+              <a-row :gutter="12">
+                <a-col :span="12">
+                  <a-select
+                    v-model:value="form.chunkStrategy"
+                    :options="strategyOptions"
+                    placeholder="选择拆分方式"
+                  />
+                </a-col>
+                <a-col v-if="showChunkSize" :span="12">
+                  <a-input-number
+                    v-model:value="form.chunkSize"
+                    :min="100"
+                    :step="100"
+                    addon-before="单块字符数"
+                    style="width: 100%"
+                  />
+                </a-col>
+              </a-row>
+              <a-row v-if="showHierarchicalParams || showOverlap" :gutter="12" style="margin-top: 10px">
+                <a-col v-if="showHierarchicalParams" :span="8">
+                  <a-input-number
+                    v-model:value="form.parentSize"
+                    :min="500"
+                    :step="500"
+                    addon-before="父块"
+                    style="width: 100%"
+                  />
+                </a-col>
+                <a-col v-if="showHierarchicalParams" :span="8">
+                  <a-input-number
+                    v-model:value="form.childSize"
+                    :min="100"
+                    :step="100"
+                    addon-before="子块"
+                    style="width: 100%"
+                  />
+                </a-col>
+                <a-col v-if="showOverlap" :span="8">
+                  <a-input-number
+                    v-model:value="form.overlap"
+                    :min="0"
+                    :step="50"
+                    addon-before="重叠"
+                    style="width: 100%"
+                  />
+                </a-col>
+              </a-row>
+              <div style="margin-top: 6px">
+                <a-typography-text type="secondary" style="font-size: 12px">
+                  按所选策略将文档拆分为翻译单元，整块送翻以保留上下文。父子层级取最细粒度子块；自动选择会按文件类型与篇幅智能匹配策略。
+                </a-typography-text>
+              </div>
+            </a-form-item>
             <a-row :gutter="16">
               <a-col :span="12">
                 <a-form-item label="初翻译模型">
@@ -172,19 +280,29 @@ onMounted(loadGlossary)
               </a-col>
             </a-row>
             <a-row :gutter="16">
-              <a-col :span="8">
+              <a-col :span="6">
                 <a-form-item label="启用术语库">
                   <a-switch v-model:checked="form.enableGlossary" />
                 </a-form-item>
               </a-col>
-              <a-col :span="8">
+              <a-col :span="6">
                 <a-form-item label="历史数据优化">
                   <a-switch v-model:checked="form.enableHistory" />
                 </a-form-item>
               </a-col>
-              <a-col :span="8">
+              <a-col :span="6">
                 <a-form-item label="AI 审校">
                   <a-switch v-model:checked="form.enableReview" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="6">
+                <a-form-item>
+                  <template #label>
+                    <a-tooltip title="审校后对全文做术语 / 语气 / 人称一致性归一（汇总 Agent）">
+                      风格统一
+                    </a-tooltip>
+                  </template>
+                  <a-switch v-model:checked="form.enableSummary" />
                 </a-form-item>
               </a-col>
             </a-row>
@@ -192,10 +310,10 @@ onMounted(loadGlossary)
         </a-card>
 
         <a-card title="待翻译文件" size="small" style="margin-top: 16px">
-          <a-upload :before-upload="beforeUpload" :show-upload-list="false" accept=".txt,.docx,.html">
+          <a-upload :before-upload="beforeUpload" :show-upload-list="false" :accept="ACCEPT">
             <a-button :loading="uploading">
               <template #icon><UploadOutlined /></template>
-              选择文件（.txt / .docx / .html）
+              选择文件（TXT / Markdown / HTML / PDF / Word）
             </a-button>
           </a-upload>
           <div v-if="uploadedFileName" style="margin-top: 10px">

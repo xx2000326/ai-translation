@@ -13,6 +13,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   ai:
+    default-model: qwen-plus
     # ===================== 大模型配置（OpenAI 兼容 / DashScope 兼容模式） =====================
     openai:
       api-key: ${DASHSCOPE_API_KEY:your-dashscope-api-key}
@@ -31,7 +32,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:your-deepseek-api-key}
       chat:
         options:
-          model: deepseek-chat
+          model: deepseek-v4-flash
 
   mvc:
     async:
@@ -59,6 +60,19 @@ app:
     # 启动时自动创建表与索引（含 vector 扩展），生产可关闭后手动维护
     initialize-schema: true
 
+  # ===================== 翻译流水线 =====================
+  translation:
+    # 句子翻译队列 Worker 数量（全局最大在途 LLM 请求数）
+    concurrency: ${TRANSLATION_CONCURRENCY:8}
+    # 有界队列容量，建议 concurrency × 2
+    queue-capacity: ${TRANSLATION_QUEUE_CAPACITY:16}
+    # 每分钟 API 调用上限，0 表示不限制
+    rate-limit-per-minute: ${TRANSLATION_RATE_LIMIT_PER_MINUTE:0}
+    summary:
+      batch-size: 15
+      overlap-sentences: 2
+      style-guide-max-samples: 80
+
   # ===================== 文件存储（源文件上传） =====================
   # type=local 时写本地磁盘（默认）；type=minio 时走 MinIO 对象存储
   storage:
@@ -69,6 +83,20 @@ app:
       access-key: ${MINIO_ACCESS_KEY:minioadmin}
       secret-key: ${MINIO_SECRET_KEY:minioadmin}
       bucket: ${MINIO_BUCKET:ai-translation}
+
+# ===================== 文档拆分引擎（独立模块：service/chunk） =====================
+# 见 doc/V1/chunk-method.md。strategy 为空时由工厂按文件类型自动选择。
+document:
+  chunk:
+    enabled: true
+    # 可选：FIXED_SIZE / PARAGRAPH / SENTENCE / MARKDOWN / HIERARCHICAL
+    strategy:
+    chunk-size: 1000
+    overlap: 100
+    parent-size: 5000
+    child-size: 1000
+    # 内容字符数超过该阈值且未显式指定策略时，自动切换为层级拆分
+    hierarchical-threshold: 50000
 
 # MyBatis-Plus 配置
 mybatis-plus:

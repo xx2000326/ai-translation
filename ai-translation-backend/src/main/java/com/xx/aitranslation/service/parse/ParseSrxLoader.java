@@ -1,5 +1,6 @@
 package com.xx.aitranslation.service.parse;
 
+import com.xx.aitranslation.enums.ParseGranularity;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.okapi.common.ISegmenter;
 import net.sf.okapi.common.LocaleId;
@@ -37,6 +38,30 @@ final class ParseSrxLoader {
             log.error("Failed to load SRX rules", e);
         }
         return doc;
+    }
+
+    /**
+     * 按指定粒度拆分段落文本为翻译单元：
+     * <ul>
+     *     <li>{@link ParseGranularity#PARAGRAPH}：整段作为单个句子，不再细分。</li>
+     *     <li>{@link ParseGranularity#SENTENCE}：SRX 分句。</li>
+     * </ul>
+     */
+    static List<ParsedSentence> split(LocaleId locale, String text, ParseGranularity granularity) {
+        if (granularity == ParseGranularity.PARAGRAPH || granularity == ParseGranularity.STRUCTURE) {
+            return singleSentence(text);
+        }
+        return segment(locale, text);
+    }
+
+    /**
+     * 整段作为单个翻译单元（按段拆分时使用）。
+     */
+    static List<ParsedSentence> singleSentence(String text) {
+        if (ObjectUtils.isEmpty(text)) {
+            return List.of();
+        }
+        return List.of(new ParsedSentence(0, "0", text));
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.xx.aitranslation.service;
 
+import com.xx.aitranslation.agent.AgentContext;
 import com.xx.aitranslation.agent.TranslationAgent;
 import com.xx.aitranslation.common.BizException;
 import com.xx.aitranslation.dto.TranslateRequest;
@@ -9,6 +10,7 @@ import com.xx.aitranslation.enums.TranslationRole;
 import com.xx.aitranslation.enums.TranslationStyle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
@@ -30,6 +32,10 @@ public class TranslationService {
     private final CustomerService customerService;
     private final TranslationAgent translationAgent;
 
+    /** 默认翻译模型名，从配置文件 spring.ai.default-model 读取 */
+    @Value("${spring.ai.default-model:qwen-plus}")
+    private String defaultModel;
+
     public TranslateResponse translate(TranslateRequest request) {
         if (ObjectUtils.isEmpty(request.getText())) {
             throw new BizException("translate.text.empty");
@@ -41,14 +47,22 @@ public class TranslationService {
 
         // 1. 查询 MySQL 术语库（当前客户），构建术语规则
         String glossary = glossaryService.buildGlossaryRules(request.getCustomerId(), request.getText());
-        // 2. 查询 PGVector（当前客户），检索相似历史翻译
+        // 2. 查询 PGVector（当前客户），检索相似历史翻译（单句翻译不限定语言方向）
         String ragContext = ragService.buildRagContext(request.getText(), request.getCustomerId(),
-                role.getCode(), style.getCode());
+                role.getCode(), style.getCode(), null, null);
 
-        // 3. 构建 Prompt 并调用 LLM
+        // 3. 构建 Prompt 并调用 LLM（语言方向交由模型自动识别）
         String translatedText;
         try {
-            translatedText = translationAgent.translate(request.getText(), role, style, glossary, ragContext);
+            AgentContext context = AgentContext.builder()
+                    .text(request.getText())
+                    .role(role.getDescription())
+                    .style(style.getDescription())
+                    .glossaryRules(glossary)
+                    .ragContext(ragContext)
+                    .modelCode(defaultModel)
+                    .build();
+            translatedText = translationAgent.translate(context);
         } catch (Exception e) {
             log.error("调用大模型翻译失败", e);
             throw new BizException("translate.failed");
@@ -57,7 +71,8 @@ public class TranslationService {
         // 4. 写入 MySQL 翻译历史
         historyService.save(request.getCustomerId(), request.getText(), translatedText, role.getCode(), style.getCode());
         // 5. 写入 PGVector 翻译记忆（绑定当前客户）
-        ragService.saveMemory(request.getText(), request.getCustomerId(), role.getCode(), style.getCode());
+        ragService.saveMemory(request.getText(), translatedText, request.getCustomerId(),
+                role.getCode(), style.getCode(), null, null);
 
         return new TranslateResponse(translatedText, role.getCode(), style.getCode());
     }

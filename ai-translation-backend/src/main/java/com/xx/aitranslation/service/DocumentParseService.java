@@ -1,6 +1,7 @@
 package com.xx.aitranslation.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.xx.aitranslation.common.BizException;
 import com.xx.aitranslation.dto.ParagraphDetailResponse;
 import com.xx.aitranslation.dto.SentenceView;
@@ -76,6 +77,12 @@ public class DocumentParseService {
             paragraph.setParaPosition(para.paraPosition());
             paragraph.setParaType(para.paraType());
             paragraph.setOriginalText(para.originalText());
+            if (!ObjectUtils.isEmpty(para.level())) {
+                paragraph.setChunkId(para.paraPosition());
+                paragraph.setTitle(para.title());
+                paragraph.setParentTitle(para.parentTitle());
+                paragraph.setLevel(para.level());
+            }
             paragraphMapper.insert(paragraph);
 
             if (ObjectUtils.isEmpty(para.sentences())) {
@@ -166,6 +173,11 @@ public class DocumentParseService {
             view.setOrderNo(sent.getOrderNo());
             TranslationParagraph para = paraMap.get(sent.getParagraphId());
             view.setBlockType(ObjectUtils.isEmpty(para) ? "paragraph" : para.getParaType());
+            if (!ObjectUtils.isEmpty(para)) {
+                view.setTitle(para.getTitle());
+                view.setParentTitle(para.getParentTitle());
+                view.setLevel(para.getLevel());
+            }
             view.setOriginalText(sent.getOriginalText());
             view.setTranslatedText(sent.getTranslatedText());
             view.setReviewedText(sent.getReviewedText());
@@ -180,6 +192,31 @@ public class DocumentParseService {
 
     public void updateSentence(TranslationSentence sentence) {
         sentenceMapper.updateById(sentence);
+    }
+
+    /**
+     * 清空任务下所有句子的机翻 / 审校 / 定稿结果，用于重新翻译前的全量复位。
+     * 原文（{@code original_text}）保持不变。
+     */
+    public void resetTranslations(Long taskId) {
+        TranslationDocument doc = findDocumentByTaskId(taskId);
+        if (ObjectUtils.isEmpty(doc)) {
+            return;
+        }
+        List<Long> paragraphIds = paragraphMapper.selectList(new LambdaQueryWrapper<TranslationParagraph>()
+                        .eq(TranslationParagraph::getDocumentId, doc.getId()))
+                .stream().map(TranslationParagraph::getId).toList();
+        if (ObjectUtils.isEmpty(paragraphIds)) {
+            return;
+        }
+        sentenceMapper.update(null, new LambdaUpdateWrapper<TranslationSentence>()
+                .in(TranslationSentence::getParagraphId, paragraphIds)
+                .set(TranslationSentence::getTranslatedText, null)
+                .set(TranslationSentence::getReviewedText, null)
+                .set(TranslationSentence::getFinalText, null)
+                .set(TranslationSentence::getReviewScore, null)
+                .set(TranslationSentence::getReviewAdvice, null)
+                .set(TranslationSentence::getReviewFlag, false));
     }
 
     public TranslationSentence getSentence(Long sentenceId) {

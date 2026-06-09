@@ -1,11 +1,14 @@
 package com.xx.aitranslation.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.xx.aitranslation.dto.TaskStepDto;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 翻译任务实体，对应 MySQL translation_task 表。
@@ -40,6 +43,28 @@ public class TranslationTask {
     /** 目标语言 code */
     private String targetLang;
 
+    /**
+     * 解析拆分粒度（已废弃，保留兼容历史数据）。
+     * @deprecated 工作流解析已改用文档拆分引擎，改由 {@link #chunkStrategy} 等字段控制。
+     */
+    @Deprecated
+    private String parseGranularity;
+
+    /** 文档拆分策略，存 {@link com.xx.aitranslation.service.chunk.config.ChunkStrategyType} 的 name()，AUTO 表示自动选择 */
+    private String chunkStrategy;
+
+    /** 固定长度策略：单块字符数 */
+    private Integer chunkSize;
+
+    /** 相邻块重叠字符数 */
+    private Integer chunkOverlap;
+
+    /** 层级策略：父块字符数 */
+    private Integer chunkParentSize;
+
+    /** 层级策略：子块字符数 */
+    private Integer chunkChildSize;
+
     /** 是否启用术语库 */
     private Boolean enableGlossary;
 
@@ -54,6 +79,9 @@ public class TranslationTask {
 
     /** 审校使用的模型 code */
     private String reviewModel;
+
+    /** 是否启用全文风格统一（汇总 Agent，V1 模块七） */
+    private Boolean enableSummary;
 
     /** 审校综合评分 */
     private Integer reviewScore;
@@ -72,6 +100,10 @@ public class TranslationTask {
 
     /** 失败原因 */
     private String errorMsg;
+
+    /** 任务步骤进度（非表字段，详情接口填充） */
+    @TableField(exist = false)
+    private List<TaskStepDto> steps;
 
     private LocalDateTime createTime;
 

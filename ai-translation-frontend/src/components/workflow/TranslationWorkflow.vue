@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { api } from '../../api.js'
@@ -8,6 +8,7 @@ import StepParse from './StepParse.vue'
 import StepTranslate from './StepTranslate.vue'
 import StepReview from './StepReview.vue'
 import StepExport from './StepExport.vue'
+import { findStep, isAgentProcessing, STEP } from '../../taskStepUtil.js'
 
 const props = defineProps({
   taskId: { type: [Number, String], required: true },
@@ -19,12 +20,11 @@ const task = ref(null)
 const loading = ref(false)
 let timer = null
 
-// 进行中状态（需要轮询）
-const RUNNING_STATUS = ['PARSING', 'TRANSLATING', 'REVIEWING']
+const RUNNING_STATUS = ['PARSING', 'AGENT_PROCESSING']
 // 稳定态（停止轮询）
 const STABLE_STATUS = ['PARSED', 'MANUAL_REVIEW', 'COMPLETED', 'EXPORTED', 'FAILED']
 
-// 状态 → 步骤映射
+// 状态 → 步骤映射（用于步骤条定位与可回看范围，不含自动跳转逻辑）
 function statusToStep(status) {
   switch (status) {
     case 'DRAFT':
@@ -33,10 +33,7 @@ function statusToStep(status) {
     case 'PARSING':
     case 'PARSED':
       return 1
-    case 'TRANSLATING':
-    case 'TRANSLATED':
-    case 'REVIEWING':
-    case 'REVIEW_DONE':
+    case 'AGENT_PROCESSING':
       return 2
     case 'MANUAL_REVIEW':
       return 3
@@ -48,9 +45,75 @@ function statusToStep(status) {
   }
 }
 
+const lastStatus = ref(null)
+/** 本轮 AI 流程是否已自动进入过人工审校（防止回看时被再次拉回） */
+const hasAutoAdvancedToReview = ref(false)
+
+function isPastAiPhase(status, taskData) {
+  if (status === 'MANUAL_REVIEW' || status === 'COMPLETED' || status === 'EXPORTED') {
+    return true
+  }
+
+  const unifyStep = taskData ? findStep(taskData, STEP.SUMMARY_UNIFY) : null
+  if (unifyStep && (unifyStep.status === 'RUNNING' || unifyStep.status === 'PENDING')) {
+    return false
+  }
+
+  if (taskData?.enableSummary && isAgentProcessing(status)) {
+    const translateStep = findStep(taskData, STEP.TRANSLATE)
+    const scoreStep = findStep(taskData, STEP.REVIEW_SCORE)
+    if (translateStep?.status === 'DONE' && (!scoreStep || scoreStep.status === 'DONE' || scoreStep.status === 'SKIPPED')) {
+      if (unifyStep && unifyStep.status !== 'DONE' && unifyStep.status !== 'SKIPPED') {
+        return false
+      }
+    }
+  }
+
+  return false
+}
+
+function applyStatusStep(data) {
+  const status = data.status
+  const prev = lastStatus.value
+  const target = statusToStep(status)
+
+  // 新一轮翻译开始，允许再次自动跳转
+  if (status === 'AGENT_PROCESSING' && prev !== 'AGENT_PROCESSING') {
+    hasAutoAdvancedToReview.value = false
+  }
+
+  if (status === 'COMPLETED' || status === 'EXPORTED') {
+    activeStep.value = Math.max(activeStep.value, 4)
+  } else if (isPastAiPhase(status, data) && !hasAutoAdvancedToReview.value) {
+    activeStep.value = Math.max(activeStep.value, 3)
+    hasAutoAdvancedToReview.value = true
+  } else if (prev === null) {
+    activeStep.value = Math.max(activeStep.value, target)
+    if (isPastAiPhase(status, data)) {
+      hasAutoAdvancedToReview.value = true
+    }
+  } else if (RUNNING_STATUS.includes(status) && !isPastAiPhase(status, data)) {
+    if (target >= activeStep.value) {
+      activeStep.value = target
+    }
+  }
+
+  lastStatus.value = status
+  syncMaxUnlockedStep(data)
+}
+
+function syncMaxUnlockedStep(data) {
+  const target = statusToStep(data.status)
+  maxUnlockedStep.value = Math.max(maxUnlockedStep.value, target)
+  if (isPastAiPhase(data.status, data)) {
+    maxUnlockedStep.value = Math.max(maxUnlockedStep.value, 3)
+  }
+}
+
 // 默认步骤跟随状态，允许用户手动切换回看
 const activeStep = ref(0)
-const statusStep = computed(() => (task.value ? statusToStep(task.value.status) : 0))
+/** 已解锁的最高可点击步骤（只增不减，回看时不封锁后续步骤） */
+const maxUnlockedStep = ref(0)
 const isFailed = computed(() => task.value?.status === 'FAILED')
 
 const steps = [
@@ -65,11 +128,7 @@ async function refreshTask() {
   try {
     const data = await api.getTask(props.taskId)
     task.value = data
-    // 跟随状态推进（不强制覆盖用户手动回看到的更早步骤，但若状态前进则跟进）
-    const target = statusToStep(data.status)
-    if (target >= activeStep.value || RUNNING_STATUS.includes(data.status)) {
-      activeStep.value = target
-    }
+    applyStatusStep(data)
     syncPolling()
   } catch (e) {
     message.error(e.message)
@@ -91,10 +150,7 @@ function startPolling() {
     try {
       const data = await api.getTask(props.taskId)
       task.value = data
-      const target = statusToStep(data.status)
-      if (target >= activeStep.value || RUNNING_STATUS.includes(data.status)) {
-        activeStep.value = target
-      }
+      applyStatusStep(data)
       if (STABLE_STATUS.includes(data.status)) {
         stopPolling()
       }
@@ -112,20 +168,28 @@ function stopPolling() {
   }
 }
 
-// 子步骤完成回调：刷新任务并由状态映射决定步骤
-// 若任务状态尚未推进（如 PARSED 后用户点击"确认并进入翻译"，状态不变），则强制前进一步
-async function onStepNext() {
+// 子步骤完成回调：刷新任务（refreshTask 会按状态前进步骤），并可由子组件指定一个"最小前进到"的目标步骤。
+// 仅向前推进，绝不回退：避免出现「解析触发后直接跳到 AI 翻译」或「翻译极快时被拉回」的问题。
+async function onStepNext(target) {
   await refreshTask()
-  if (statusStep.value <= activeStep.value && activeStep.value < steps.length - 1) {
-    activeStep.value += 1
+  const step =
+    typeof target === 'number' ? target : statusToStep(task.value?.status)
+  if (step > activeStep.value) {
+    activeStep.value = Math.min(step, steps.length - 1)
   }
 }
 
 function onStepClick(e) {
-  // 仅允许回看已完成或当前的步骤
-  if (e <= statusStep.value) {
+  if (e <= maxUnlockedStep.value) {
     activeStep.value = e
   }
+}
+
+// 人工审校页发起重新翻译：刷新任务并回到「AI 翻译」步骤展示重译进度
+async function onRetranslate() {
+  hasAutoAdvancedToReview.value = false
+  await refreshTask()
+  activeStep.value = 2
 }
 
 onMounted(async () => {
@@ -134,57 +198,67 @@ onMounted(async () => {
   loading.value = false
 })
 
+watch(
+  () => props.taskId,
+  () => {
+    lastStatus.value = null
+    hasAutoAdvancedToReview.value = false
+    maxUnlockedStep.value = 0
+  }
+)
+
 onUnmounted(stopPolling)
 </script>
 
 <template>
   <div>
-    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center">
-      <div style="display: flex; align-items: center; gap: 12px">
-        <a-button @click="emit('back')">
+    <div class="page-header">
+      <div class="workflow-head">
+        <a-button shape="circle" @click="emit('back')">
           <template #icon><ArrowLeftOutlined /></template>
-          返回
         </a-button>
         <div>
-          <a-typography-title :level="4" style="margin: 0">翻译工作流</a-typography-title>
-          <a-typography-text type="secondary">
-            {{ projectName || '项目' }} · 任务 #{{ taskId }}
-          </a-typography-text>
+          <h1 class="page-title" style="font-size: 24px">{{ projectName || '翻译项目' }}</h1>
+          <p class="page-subtitle">翻译工作流 · 任务 #{{ taskId }}</p>
         </div>
       </div>
     </div>
 
-    <a-steps
-      :current="activeStep"
-      style="margin-bottom: 24px"
-      :status="isFailed ? 'error' : 'process'"
-      @change="onStepClick"
-    >
-      <a-step
-        v-for="(s, i) in steps"
-        :key="i"
-        :title="s.title"
-        :description="s.description"
-      />
-    </a-steps>
+    <div class="workflow-card">
+      <a-steps
+        :current="activeStep"
+        style="margin-bottom: 6px"
+        :status="isFailed ? 'error' : 'process'"
+        @change="onStepClick"
+      >
+        <a-step
+          v-for="(s, i) in steps"
+          :key="i"
+          :title="s.title"
+          :description="s.description"
+        />
+      </a-steps>
+    </div>
 
     <a-alert
       v-if="isFailed && task?.errorMsg"
       type="error"
       show-icon
-      style="margin-bottom: 16px"
+      style="margin: 16px 0"
       message="任务执行失败"
       :description="task.errorMsg"
     />
 
-    <a-spin :spinning="loading">
-      <div v-if="task">
-        <StepConfig v-if="activeStep === 0" :task="task" @next="onStepNext" />
-        <StepParse v-else-if="activeStep === 1" :task="task" @next="onStepNext" />
-        <StepTranslate v-else-if="activeStep === 2" :task="task" @next="onStepNext" />
-        <StepReview v-else-if="activeStep === 3" :task="task" @done="onStepNext" />
-        <StepExport v-else-if="activeStep === 4" :task="task" />
-      </div>
-    </a-spin>
+    <div class="workflow-card">
+      <a-spin :spinning="loading">
+        <div v-if="task">
+          <StepConfig v-if="activeStep === 0" :task="task" @next="onStepNext" />
+          <StepParse v-else-if="activeStep === 1" :task="task" @next="onStepNext" />
+          <StepTranslate v-else-if="activeStep === 2" :task="task" @next="onStepNext" />
+          <StepReview v-else-if="activeStep === 3" :task="task" @done="onStepNext" @retranslate="onRetranslate" />
+          <StepExport v-else-if="activeStep === 4" :task="task" />
+        </div>
+      </a-spin>
+    </div>
   </div>
 </template>

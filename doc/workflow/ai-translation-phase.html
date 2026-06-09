@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 翻译阶段 — 深度解析</title>
+  <link rel="stylesheet" href="assets/doc.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>AI 翻译阶段 · 深度解析</h1>
+        <p>从用户点击「开始 AI 翻译」到进入人工审校的完整后端编排</p>
+      </div>
+      <nav>
+        <a href="#overview">概览</a>
+        <a href="#user">用户视角</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#agents">三大 Agent</a>
+        <a href="#context">上下文注入</a>
+        <a href="#data">数据写入</a>
+        <a href="#infra">并发与模型</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section id="overview">
+      <span class="badge b-biz">范围界定</span>
+      <h2>§1 阶段概览</h2>
+      <p class="lead">
+        「AI 翻译阶段」指前端 <strong>Step 2</strong> 触发 <code>POST /api/tasks/{id}/translate</code> 之后，
+        后端 <code>TranslationPipeline.translateAsync</code> 在 <code>taskExecutor</code> 线程中执行的整段异步编排，
+        直至任务状态变为 <code>MANUAL_REVIEW</code>（等待人工审校）。
+      </p>
+
+      <div class="phases">
+        <div class="phase"><div class="tag">Phase 1</div><h4>并发初翻</h4><p>每句调用 TranslationAgent，写入 translatedText</p></div>
+        <div class="phase p2"><div class="tag">Phase 2 · 可选</div><h4>AI 审校循环</h4><p>ReviewAgent 评分，&lt;80 分带建议重翻，最多 3 轮</p></div>
+        <div class="phase p3"><div class="tag">Phase 3 · 可选</div><h4>全文风格统一</h4><p>SummaryAgent 批量润色，写入 reviewedText</p></div>
+        <div class="phase p4"><div class="tag">Phase 4</div><h4>收尾</h4><p>未开风格统一时 reviewedText = translatedText</p></div>
+      </div>
+
+      <div class="diagram-desc">
+        <strong>图说明：</strong>用户点击「开始 AI 翻译」后，后端在独立线程中依次执行：构建上下文 → 并发初翻 → 可选审校循环 → 收尾（风格统一或复制初翻）。
+        主流程居中向下；右侧红色虚线为异常路径，任一阶段未捕获异常则任务变为 <code>FAILED</code>；正常结束则进入 <code>MANUAL_REVIEW</code>。
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 620 720" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="translateAsync 编排流程">
+          <defs>
+            <filter id="pipe-shadow" x="-5%" y="-5%" width="110%" height="110%">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#64748b" flood-opacity="0.12"/>
+            </filter>
+            <marker id="pipe-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+            </marker>
+            <marker id="pipe-arrow-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#dc2626"/>
+            </marker>
+          </defs>
+
+          <!-- 右侧异常通道背景 -->
+          <rect x="468" y="168" width="140" height="420" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1" stroke-dasharray="5 3" opacity="0.55"/>
+          <text x="538" y="188" text-anchor="middle" font-size="9" fill="#dc2626">异常路径</text>
+
+          <!-- 主流程（居中 x=260） -->
+          <g filter="url(#pipe-shadow)">
+            <rect x="130" y="10" width="260" height="44" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+            <text x="260" y="30" text-anchor="middle" font-size="12" fill="#1e293b">触发翻译 API</text>
+            <text x="260" y="46" text-anchor="middle" font-size="9" fill="#64748b">POST /translate</text>
+          </g>
+          <line x1="260" y1="54" x2="260" y2="74" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arrow)"/>
+          <g filter="url(#pipe-shadow)">
+            <rect x="110" y="74" width="300" height="44" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.2"/>
+            <text x="260" y="94" text-anchor="middle" font-size="11" fill="#1e293b">构建翻译上下文</text>
+            <text x="260" y="110" text-anchor="middle" font-size="9" fill="#64748b">buildContext · 任务 + 项目</text>
+          </g>
+          <line x1="260" y1="118" x2="260" y2="138" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arrow)"/>
+          <g filter="url(#pipe-shadow)">
+            <rect x="130" y="138" width="260" height="44" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.2"/>
+            <text x="260" y="158" text-anchor="middle" font-size="11" fill="#1e293b">状态：翻译中</text>
+            <text x="260" y="174" text-anchor="middle" font-size="9" fill="#64748b">TRANSLATING</text>
+          </g>
+          <line x1="260" y1="182" x2="260" y2="202" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arrow)"/>
+          <g filter="url(#pipe-shadow)">
+            <rect x="80" y="202" width="360" height="48" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+            <text x="260" y="222" text-anchor="middle" font-size="11" font-weight="600" fill="#2563eb">阶段 1：并发初翻</text>
+            <text x="260" y="240" text-anchor="middle" font-size="9" fill="#64748b">translateSentencesConcurrently · 线程池逐句</text>
+          </g>
+          <line x1="260" y1="250" x2="260" y2="270" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arrow)"/>
+          <g filter="url(#pipe-shadow)">
+            <rect x="130" y="270" width="260" height="44" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+            <text x="260" y="290" text-anchor="middle" font-size="11" fill="#1e293b">状态：初翻完成</text>
+            <text x="260" y="306" text-anchor="middle" font-size="9" fill="#64748b">TRANSLATED</text>
+          </g>
+          <line x1="260" y1="314" x2="260" y2="338" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arrow)"/>
+          <polygon points="260,338 300,358 260,378 220,358" fill="#fffbeb" stroke="#64748b" stroke-width="1.2" filter="url(#pipe-shadow)"/>
+          <text x="260" y="356" text-anchor="middle" font-size="10" fill="#1e293b">开启审校？</text>
+          <text x="260" y="368" text-anchor="middle" font-size="8" fill="#64748b">enableReview</text>
+
+          <!-- 是：审校 -->
+          <line x1="220" y1="358" x2="120" y2="410" stroke="#64748b" stroke-width="1.2" marker-end="url(#pipe-arrow)"/>
+          <text x="165" y="378" font-size="9" fill="#059669">是</text>
+          <g filter="url(#pipe-shadow)">
+            <rect x="30" y="410" width="180" height="48" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.2"/>
+            <text x="120" y="430" text-anchor="middle" font-size="10" fill="#1e293b">阶段 2：审校循环</text>
+            <text x="120" y="448" text-anchor="middle" font-size="9" fill="#64748b">reviewLoop · 最多 3 轮</text>
+          </g>
+          <line x1="120" y1="458" x2="120" y2="482" stroke="#64748b" stroke-width="1.2" marker-end="url(#pipe-arrow)"/>
+          <g filter="url(#pipe-shadow)">
+            <rect x="30" y="482" width="180" height="44" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+            <text x="120" y="502" text-anchor="middle" font-size="10" fill="#1e293b">状态：审校完成</text>
+            <text x="120" y="518" text-anchor="middle" font-size="9" fill="#64748b">REVIEW_DONE</text>
+          </g>
+          <path d="M 210 504 H 260 V 544" fill="none" stroke="#64748b" stroke-width="1.2" marker-end="url(#pipe-arrow)"/>
+
+          <!-- 否：跳过 -->
+          <line x1="300" y1="358" x2="400" y2="410" stroke="#64748b" stroke-width="1.2" marker-end="url(#pipe-arrow)"/>
+          <text x="365" y="378" font-size="9" fill="#64748b">否</text>
+          <path d="M 400 410 V 544 H 350" fill="none" stroke="#64748b" stroke-width="1.2" marker-end="url(#pipe-arrow)"/>
+
+          <g filter="url(#pipe-shadow)">
+            <rect x="100" y="544" width="320" height="48" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.2"/>
+            <text x="260" y="564" text-anchor="middle" font-size="11" font-weight="600" fill="#7c3aed">阶段 3：收尾统一</text>
+            <text x="260" y="582" text-anchor="middle" font-size="9" fill="#64748b">finalizeTranslation · Summary 或复制初翻</text>
+          </g>
+          <line x1="260" y1="592" x2="260" y2="616" stroke="#64748b" stroke-width="1.5" marker-end="url(#pipe-arrow)"/>
+          <g filter="url(#pipe-shadow)">
+            <rect x="110" y="616" width="300" height="48" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+            <text x="260" y="636" text-anchor="middle" font-size="11" font-weight="600" fill="#059669">状态：待人工审校</text>
+            <text x="260" y="654" text-anchor="middle" font-size="9" fill="#64748b">MANUAL_REVIEW · AI 阶段结束</text>
+          </g>
+
+          <!-- 异常：FAILED 汇聚（右侧独立，不与主流程重叠） -->
+          <g filter="url(#pipe-shadow)">
+            <rect x="478" y="218" width="120" height="52" rx="6" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+            <text x="538" y="238" text-anchor="middle" font-size="11" font-weight="600" fill="#dc2626">失败 · FAILED</text>
+            <text x="538" y="256" text-anchor="middle" font-size="9" fill="#64748b">fail(taskId) · errorMsg</text>
+          </g>
+
+          <!-- 阶段 1 异常 → FAILED（水平右出，不穿过节点） -->
+          <path d="M 440 226 H 468" fill="none" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="4 2" marker-end="url(#pipe-arrow-red)"/>
+          <text x="448" y="218" font-size="8" fill="#dc2626">阶段 1 异常</text>
+
+          <!-- 阶段 2/3 异常 → FAILED（右侧通道下行） -->
+          <path d="M 210 434 H 455 V 244 H 478" fill="none" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="4 2" marker-end="url(#pipe-arrow-red)"/>
+          <text x="462" y="340" font-size="8" fill="#dc2626">阶段 2/3 异常</text>
+        </svg>
+        <p class="diagram-caption">图 1 · translateAsync 编排：POST /translate → MANUAL_REVIEW</p>
+      </div>
+
+      <h3>涉及的状态（前端 Step 2 轮询）</h3>
+      <table>
+        <thead><tr><th>状态</th><th>含义</th><th>前端展示</th></tr></thead>
+        <tbody>
+          <tr><td><code>TRANSLATING</code></td><td>初翻进行中</td><td>「AI 翻译中…」</td></tr>
+          <tr><td><code>TRANSLATED</code></td><td>初翻完成，审校尚未开始或跳过审校后的中间态</td><td>「初翻完成」</td></tr>
+          <tr><td><code>REVIEWING</code></td><td>某轮 AI 审校进行中</td><td>「AI 审校中，第 N 轮」</td></tr>
+          <tr><td><code>REVIEW_DONE</code></td><td>审校循环结束，风格统一尚未完成</td><td>「AI 审校完成」</td></tr>
+          <tr><td><code>MANUAL_REVIEW</code></td><td>AI 阶段结束，进入 Step 3</td><td>自动跳转人工审校</td></tr>
+          <tr><td><code>FAILED</code></td><td>编排异常</td><td>展示 errorMsg</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="user">
+      <span class="badge b-biz">用户视角</span>
+      <h2>§2 前端交互</h2>
+
+      <h3>配置来源（Step 0 · StepConfig）</h3>
+      <p class="lead">多数 AI 开关在「配置」步骤写入任务，翻译阶段直接读取，不再重复提交。</p>
+      <table>
+        <thead><tr><th>配置项</th><th>任务字段</th><th>AI 阶段作用</th></tr></thead>
+        <tbody>
+          <tr><td>源/目标语言</td><td><code>sourceLang</code> / <code>targetLang</code></td><td>Prompt 语言方向、RAG 过滤维度</td></tr>
+          <tr><td>翻译要求</td><td><code>requirement</code></td><td>审校 / 风格统一 Prompt</td></tr>
+          <tr><td>初翻模型</td><td><code>translateModel</code></td><td>TranslationAgent + SummaryAgent</td></tr>
+          <tr><td>启用术语库</td><td><code>enableGlossary</code></td><td>客户术语 + 任务临时术语注入初翻</td></tr>
+          <tr><td>启用 RAG 记忆</td><td><code>enableHistory</code></td><td>翻译时检索历史；初翻后逐句写入向量库</td></tr>
+          <tr><td>启用 AI 审校</td><td><code>enableReview</code></td><td>是否执行 reviewLoop</td></tr>
+          <tr><td>审校模型</td><td><code>reviewModel</code></td><td>ReviewAgent 路由</td></tr>
+          <tr><td>启用风格统一</td><td><code>enableSummary</code></td><td>finalize 时调用 SummaryAgent</td></tr>
+        </tbody>
+      </table>
+
+      <h3>触发翻译（Step 2 · StepTranslate）</h3>
+      <div class="timeline">
+        <div class="timeline-item">
+          <strong>用户点击「开始 AI 翻译」</strong>
+          <ul>
+            <li><code>POST /api/tasks/{id}/translate</code> body: <code>model</code>, <code>enableReview</code>, <code>reviewModel</code></li>
+            <li>可覆盖 Step 0 已存的模型与审校开关（<code>saveTranslateConfig</code>）</li>
+          </ul>
+        </div>
+        <div class="timeline-item warn">
+          <strong>运行中 UI</strong>
+          <ul>
+            <li>状态 ∈ { TRANSLATING, TRANSLATED, REVIEWING, REVIEW_DONE } 时显示 Spinner</li>
+            <li><code>TranslationWorkflow</code> 每 2s 轮询 <code>GET /tasks/{id}</code></li>
+          </ul>
+        </div>
+        <div class="timeline-item ok">
+          <strong>完成</strong>
+          <ul>
+            <li>状态 → <code>MANUAL_REVIEW</code> 后自动进入 Step 3 人工审校</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="pipeline">
+      <span class="badge b-tech">后端编排</span>
+      <h2>§3 TranslationPipeline 详解</h2>
+      <p class="lead">入口：<code>TranslationPipeline.translateAsync</code>，注解 <code>@Async("taskExecutor")</code>，单任务占一条编排线程。</p>
+
+      <h3>3.1 buildContext — 上下文快照</h3>
+      <p class="lead">从 <code>translation_task</code> + 所属 <code>project</code> 组装 <code>TranslationContext</code>，供并发句子翻译只读使用，避免每句查库。</p>
+      <table>
+        <thead><tr><th>字段</th><th>来源</th></tr></thead>
+        <tbody>
+          <tr><td><code>roleDesc</code> / <code>styleDesc</code></td><td>项目 role/style → <code>TranslationRole</code> / <code>TranslationStyle</code> 描述文本，注入翻译 Prompt</td></tr>
+          <tr><td><code>ragRole</code> / <code>ragStyle</code></td><td>项目 role/style 的 code，RAG 读写 metadata 维度</td></tr>
+          <tr><td><code>tempGlossary</code></td><td>任务级 <code>task_glossary</code> 拼成 <code>term -> translation</code> 行</td></tr>
+          <tr><td>四个 enable* 开关</td><td>任务 Boolean 字段</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2 Phase 1 — 并发初翻</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 780 220" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="并发翻译线程池">
+          <defs>
+            <filter id="pool-shadow" x="-5%" y="-5%" width="110%" height="110%">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#64748b" flood-opacity="0.12"/>
+            </filter>
+            <marker id="pool-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+            </marker>
+          </defs>
+
+          <rect x="10" y="20" width="760" height="180" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6 3"/>
+          <text x="390" y="48" text-anchor="middle" font-size="12" font-weight="600" fill="#2563eb">translationExecutor（默认 8 线程）</text>
+
+          <g filter="url(#pool-shadow)">
+            <rect x="40" y="70" width="130" height="50" rx="6" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>
+            <text x="105" y="92" text-anchor="middle" font-size="10" fill="#1e293b">句子 1</text>
+            <text x="105" y="108" text-anchor="middle" font-size="9" fill="#64748b">translateOne</text>
+          </g>
+          <g filter="url(#pool-shadow)">
+            <rect x="200" y="70" width="130" height="50" rx="6" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>
+            <text x="265" y="92" text-anchor="middle" font-size="10" fill="#1e293b">句子 2</text>
+            <text x="265" y="108" text-anchor="middle" font-size="9" fill="#64748b">translateOne</text>
+          </g>
+          <text x="390" y="100" text-anchor="middle" font-size="18" fill="#64748b">···</text>
+          <g filter="url(#pool-shadow)">
+            <rect x="450" y="70" width="130" height="50" rx="6" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>
+            <text x="515" y="92" text-anchor="middle" font-size="10" fill="#1e293b">句子 N</text>
+            <text x="515" y="108" text-anchor="middle" font-size="9" fill="#64748b">translateOne</text>
+          </g>
+
+          <line x1="105" y1="120" x2="105" y2="145" stroke="#64748b" stroke-width="1.2" marker-end="url(#pool-arrow)"/>
+          <line x1="265" y1="120" x2="265" y2="145" stroke="#64748b" stroke-width="1.2" marker-end="url(#pool-arrow)"/>
+          <line x1="515" y1="120" x2="515" y2="145" stroke="#64748b" stroke-width="1.2" marker-end="url(#pool-arrow)"/>
+
+          <g filter="url(#pool-shadow)">
+            <rect x="40" y="145" width="130" height="40" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+            <text x="105" y="170" text-anchor="middle" font-size="9" fill="#1e293b">TranslationAgent</text>
+          </g>
+          <g filter="url(#pool-shadow)">
+            <rect x="200" y="145" width="130" height="40" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+            <text x="265" y="170" text-anchor="middle" font-size="9" fill="#1e293b">TranslationAgent</text>
+          </g>
+          <g filter="url(#pool-shadow)">
+            <rect x="450" y="145" width="130" height="40" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+            <text x="515" y="170" text-anchor="middle" font-size="9" fill="#1e293b">TranslationAgent</text>
+          </g>
+
+          <line x1="170" y1="165" x2="620" y2="165" stroke="#64748b" stroke-width="1.2"/>
+          <line x1="620" y1="165" x2="620" y2="145" stroke="#64748b" stroke-width="1.2" marker-end="url(#pool-arrow)"/>
+          <g filter="url(#pool-shadow)">
+            <rect x="620" y="70" width="140" height="50" rx="6" fill="#fffbeb" stroke="#64748b" stroke-width="1.2"/>
+            <text x="690" y="92" text-anchor="middle" font-size="10" fill="#1e293b">updateSentence</text>
+            <text x="690" y="108" text-anchor="middle" font-size="9" fill="#64748b">translatedText → DB</text>
+          </g>
+        </svg>
+        <p class="diagram-caption">CompletableFuture + allOf().join() 并发等待全部句子完成</p>
+      </div>
+      <ul>
+        <li><code>CompletableFuture.runAsync(..., translationExecutor)</code> 每句一个 Future，<code>allOf().join()</code> 阻塞等待全部完成</li>
+        <li>单句流程见 §4 translateOne</li>
+        <li>全部完成后：<code>transit → TRANSLATED</code></li>
+      </ul>
+
+      <h3>3.3 Phase 2 — AI 审校循环（enableReview）</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 520 420" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AI 审校循环">
+          <defs>
+            <filter id="rev-shadow" x="-5%" y="-5%" width="110%" height="110%">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#64748b" flood-opacity="0.12"/>
+            </filter>
+            <marker id="rev-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+            </marker>
+            <marker id="rev-arrow-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#059669"/>
+            </marker>
+          </defs>
+
+          <g filter="url(#rev-shadow)">
+            <rect x="170" y="10" width="180" height="40" rx="6" fill="#fffbeb" stroke="#64748b" stroke-width="1.2"/>
+            <text x="260" y="35" text-anchor="middle" font-size="11" fill="#1e293b">round 1..3</text>
+          </g>
+          <line x1="260" y1="50" x2="260" y2="70" stroke="#64748b" stroke-width="1.5" marker-end="url(#rev-arrow)"/>
+          <g filter="url(#rev-shadow)">
+            <rect x="120" y="70" width="280" height="44" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+            <text x="260" y="90" text-anchor="middle" font-size="11" fill="#1e293b">ReviewAgent.review</text>
+            <text x="260" y="106" text-anchor="middle" font-size="9" fill="#64748b">15 句/批</text>
+          </g>
+          <line x1="260" y1="114" x2="260" y2="134" stroke="#64748b" stroke-width="1.5" marker-end="url(#rev-arrow)"/>
+          <g filter="url(#rev-shadow)">
+            <rect x="100" y="134" width="320" height="44" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.2"/>
+            <text x="260" y="154" text-anchor="middle" font-size="10" fill="#1e293b">逐句写 reviewScore / reviewAdvice / reviewFlag</text>
+            <text x="260" y="170" text-anchor="middle" font-size="9" fill="#64748b">结构化 JSON 解析</text>
+          </g>
+          <line x1="260" y1="178" x2="260" y2="198" stroke="#64748b" stroke-width="1.5" marker-end="url(#rev-arrow)"/>
+          <g filter="url(#rev-shadow)">
+            <rect x="130" y="198" width="260" height="40" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.2"/>
+            <text x="260" y="223" text-anchor="middle" font-size="10" fill="#1e293b">saveReviewMeta (minScore, round)</text>
+          </g>
+          <line x1="260" y1="238" x2="260" y2="262" stroke="#64748b" stroke-width="1.5" marker-end="url(#rev-arrow)"/>
+          <polygon points="260,262 300,282 260,302 220,282" fill="#fffbeb" stroke="#64748b" stroke-width="1.2" filter="url(#rev-shadow)"/>
+          <text x="260" y="286" text-anchor="middle" font-size="10" fill="#1e293b">存在 score&lt;80 ?</text>
+
+          <!-- 否 → DONE -->
+          <line x1="220" y1="282" x2="80" y2="282" stroke="#059669" stroke-width="1.2" marker-end="url(#rev-arrow-green)"/>
+          <text x="130" y="274" font-size="9" fill="#059669">否</text>
+          <g filter="url(#rev-shadow)">
+            <rect x="10" y="262" width="120" height="40" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+            <text x="70" y="280" text-anchor="middle" font-size="9" fill="#059669">break →</text>
+            <text x="70" y="294" text-anchor="middle" font-size="9" fill="#059669">REVIEW_DONE</text>
+          </g>
+
+          <!-- 是 → 重翻 -->
+          <line x1="300" y1="282" x2="420" y2="282" stroke="#64748b" stroke-width="1.2" marker-end="url(#rev-arrow)"/>
+          <text x="350" y="274" font-size="9" fill="#64748b">是</text>
+          <g filter="url(#rev-shadow)">
+            <rect x="420" y="262" width="90" height="40" rx="6" fill="#fffbeb" stroke="#64748b" stroke-width="1.2"/>
+            <text x="465" y="280" text-anchor="middle" font-size="9" fill="#1e293b">并发重翻</text>
+            <text x="465" y="294" text-anchor="middle" font-size="8" fill="#64748b">带 reviewAdvice</text>
+          </g>
+          <path d="M 465 302 Q 465 360 260 360 Q 55 360 55 50 Q 55 30 170 30" fill="none" stroke="#64748b" stroke-width="1.2" marker-end="url(#rev-arrow)"/>
+          <text x="30" y="200" font-size="9" fill="#64748b" transform="rotate(-90 30 200)">下一 round</text>
+
+          <!-- 常量标注 -->
+          <rect x="10" y="340" width="500" height="70" rx="6" fill="#f8fafc" stroke="#dce3ed" stroke-width="1"/>
+          <text x="30" y="362" font-size="10" fill="#64748b">PASS_SCORE = 80 · MAX_ROUND = 3 · BATCH_SIZE = 15 · FALLBACK_SCORE = 80</text>
+          <text x="30" y="382" font-size="9" fill="#64748b">JSON 解析失败时该批默认 80 分通过，不阻断循环</text>
+          <text x="30" y="400" font-size="9" fill="#64748b">flagged 句带 advice 再次调用 TranslationAgent 覆盖 translatedText</text>
+        </svg>
+        <p class="diagram-caption">审校循环：评分 → 低分重翻 → 最多 3 轮</p>
+      </div>
+      <table>
+        <thead><tr><th>常量</th><th>值</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>PASS_SCORE</code></td><td>80</td><td>低于此分标记 reviewFlag 并重翻</td></tr>
+          <tr><td><code>MAX_ROUND</code></td><td>3</td><td>最多审校 3 轮，防止死循环</td></tr>
+          <tr><td><code>BATCH_SIZE</code></td><td>15</td><td>ReviewAgent 每批送审句数</td></tr>
+          <tr><td><code>FALLBACK_SCORE</code></td><td>80</td><td>JSON 解析失败时该批视为通过</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.4 Phase 3 — finalizeTranslation</h3>
+      <ul>
+        <li><code>enableSummary=true</code>：<code>SummaryAgent.unify</code> 分批（15 句/批）→ <code>reviewedText</code></li>
+        <li><code>enableSummary=false</code>：<code>reviewedText = translatedText</code>（人工审校初值）</li>
+        <li>最后：<code>transit → MANUAL_REVIEW</code></li>
+      </ul>
+    </section>
+
+    <section id="agents">
+      <span class="badge b-agent">Agent 层</span>
+      <h2>§4 三大 Agent</h2>
+
+      <div class="grid-2">
+        <div class="card">
+          <h4>TranslationAgent</h4>
+          <p class="lead" style="margin:.25rem 0 .5rem;font-size:.82rem">初翻 + 审校反馈重翻共用</p>
+          <ul>
+            <li>Prompt：<code>prompts/translation-prompt.st</code></li>
+            <li>模型：<code>translateModel</code> → <code>ChatModelRouter</code></li>
+            <li>输出：纯译文 trim，写 <code>translatedText</code></li>
+            <li><code>reviewAdvice</code> 非空时为「反馈优化」模式</li>
+          </ul>
+          <div class="prompt-box">变量: role, style, glossary, ragContext, advice, languageInstruction, inputText</div>
+        </div>
+        <div class="card">
+          <h4>ReviewAgent</h4>
+          <p class="lead" style="margin:.25rem 0 .5rem;font-size:.82rem">AIPE 结构化审校</p>
+          <ul>
+            <li>Prompt：<code>prompts/review-prompt.st</code></li>
+            <li>模型：<code>reviewModel</code></li>
+            <li>输出：<code>ReviewResult</code> JSON（orderNo, score, advice）</li>
+            <li>维度：术语一致 / 忠实 / 流畅</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>SummaryAgent</h4>
+          <p class="lead" style="margin:.25rem 0 .5rem;font-size:.82rem">全文风格统一（模块七）</p>
+          <ul>
+            <li>Prompt：<code>prompts/summary-prompt.st</code></li>
+            <li>模型：<code>translateModel</code>（与初翻相同）</li>
+            <li>输出：<code>SummaryResult</code> → orderNo → text</li>
+            <li>失败批次回退为原 <code>translatedText</code></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>ChatModelRouter</h4>
+          <ul>
+            <li>DashScope：<code>qwen-plus</code> / <code>qwen-max</code> / <code>qwen-turbo</code> → OpenAiChatModel, temp 0.3</li>
+            <li>DeepSeek：<code>deepseek-v4-flash</code> / <code>deepseek-v4-pro</code> → DeepSeekChatModel, temp 0.2</li>
+            <li>未识别 code → 回退 <code>qwen-plus</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>translateOne 单句完整链路</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 820 320" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="translateOne 时序图">
+          <defs>
+            <filter id="seq-shadow" x="-5%" y="-5%" width="110%" height="110%">
+              <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#64748b" flood-opacity="0.1"/>
+            </filter>
+            <marker id="seq-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#2563eb"/>
+            </marker>
+            <marker id="seq-arrow-back" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto">
+              <polygon points="8 0, 0 3, 8 6" fill="#64748b"/>
+            </marker>
+          </defs>
+
+          <!-- 参与者 -->
+          <g font-size="10" font-weight="600" fill="#1e293b">
+            <rect x="20" y="10" width="70" height="28" rx="6" fill="#eff6ff" stroke="#2563eb" filter="url(#seq-shadow)"/>
+            <text x="55" y="28" text-anchor="middle">Pipeline</text>
+            <rect x="140" y="10" width="80" height="28" rx="6" fill="#ecfdf5" stroke="#059669" filter="url(#seq-shadow)"/>
+            <text x="180" y="28" text-anchor="middle">Glossary</text>
+            <rect x="270" y="10" width="70" height="28" rx="6" fill="#ecfdf5" stroke="#059669" filter="url(#seq-shadow)"/>
+            <text x="305" y="28" text-anchor="middle">RAG</text>
+            <rect x="390" y="10" width="80" height="28" rx="6" fill="#fffbeb" stroke="#64748b" filter="url(#seq-shadow)"/>
+            <text x="430" y="28" text-anchor="middle">Agent</text>
+            <rect x="520" y="10" width="70" height="28" rx="6" fill="#f5f3ff" stroke="#7c3aed" filter="url(#seq-shadow)"/>
+            <text x="555" y="28" text-anchor="middle">LLM</text>
+            <rect x="640" y="10" width="70" height="28" rx="6" fill="#f8fafc" stroke="#64748b" filter="url(#seq-shadow)"/>
+            <text x="675" y="28" text-anchor="middle">MySQL</text>
+          </g>
+
+          <!-- 生命线 -->
+          <line x1="55" y1="38" x2="55" y2="300" stroke="#dce3ed" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="180" y1="38" x2="180" y2="300" stroke="#dce3ed" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="305" y1="38" x2="305" y2="300" stroke="#dce3ed" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="430" y1="38" x2="430" y2="300" stroke="#dce3ed" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="555" y1="38" x2="555" y2="300" stroke="#dce3ed" stroke-width="1" stroke-dasharray="4 3"/>
+          <line x1="675" y1="38" x2="675" y2="300" stroke="#dce3ed" stroke-width="1" stroke-dasharray="4 3"/>
+
+          <!-- 消息 1 -->
+          <line x1="55" y1="60" x2="175" y2="60" stroke="#2563eb" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <text x="115" y="54" text-anchor="middle" font-size="8" fill="#64748b">buildGlossaryRules</text>
+          <rect x="170" y="55" width="10" height="10" fill="#ecfdf5" stroke="#059669"/>
+
+          <!-- 消息 2 -->
+          <line x1="55" y1="85" x2="50" y2="85" stroke="#64748b" stroke-width="1"/>
+          <text x="120" y="80" font-size="8" fill="#64748b">mergeGlossary + tempGlossary</text>
+
+          <!-- 消息 3 -->
+          <line x1="55" y1="105" x2="300" y2="105" stroke="#2563eb" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <text x="180" y="99" text-anchor="middle" font-size="8" fill="#64748b">buildRagContext (if enableHistory)</text>
+          <rect x="295" y="100" width="10" height="10" fill="#ecfdf5" stroke="#059669"/>
+
+          <!-- 消息 4 -->
+          <line x1="55" y1="135" x2="425" y2="135" stroke="#2563eb" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <text x="240" y="129" text-anchor="middle" font-size="8" fill="#64748b">translate(AgentContext)</text>
+          <rect x="420" y="130" width="10" height="10" fill="#fffbeb" stroke="#64748b"/>
+
+          <!-- 消息 5 -->
+          <line x1="430" y1="160" x2="550" y2="160" stroke="#2563eb" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <text x="490" y="154" text-anchor="middle" font-size="8" fill="#64748b">translation-prompt.st</text>
+          <rect x="545" y="155" width="10" height="10" fill="#f5f3ff" stroke="#7c3aed"/>
+
+          <!-- 返回 6 -->
+          <line x1="550" y1="185" x2="435" y2="185" stroke="#64748b" stroke-width="1.2" stroke-dasharray="4 2" marker-end="url(#seq-arrow-back)"/>
+          <text x="492" y="179" text-anchor="middle" font-size="8" fill="#64748b">译文</text>
+
+          <!-- 返回 7 -->
+          <line x1="425" y1="210" x2="60" y2="210" stroke="#64748b" stroke-width="1.2" stroke-dasharray="4 2" marker-end="url(#seq-arrow-back)"/>
+          <text x="240" y="204" text-anchor="middle" font-size="8" fill="#64748b">translatedText</text>
+
+          <!-- 消息 8 -->
+          <line x1="55" y1="240" x2="670" y2="240" stroke="#2563eb" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <text x="360" y="234" text-anchor="middle" font-size="8" fill="#64748b">updateSentence</text>
+          <rect x="665" y="235" width="10" height="10" fill="#f8fafc" stroke="#64748b"/>
+
+          <!-- 消息 9 -->
+          <line x1="55" y1="275" x2="300" y2="275" stroke="#2563eb" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <text x="180" y="269" text-anchor="middle" font-size="8" fill="#64748b">saveMemory (if enableHistory)</text>
+          <rect x="295" y="270" width="10" height="10" fill="#ecfdf5" stroke="#059669"/>
+        </svg>
+        <p class="diagram-caption">单句 translateOne：术语 → RAG → Agent → LLM → DB</p>
+      </div>
+    </section>
+
+    <section id="context">
+      <span class="badge b-tech">增强能力</span>
+      <h2>§5 术语库与 RAG</h2>
+
+      <h3>术语库（enableGlossary）</h3>
+      <table>
+        <thead><tr><th>来源</th><th>服务</th><th>注入方式</th></tr></thead>
+        <tbody>
+          <tr><td>客户术语库 <code>glossary</code></td><td><code>GlossaryService.buildGlossaryRules</code></td><td>按原文匹配命中规则</td></tr>
+          <tr><td>任务临时术语 <code>task_glossary</code></td><td><code>buildTempGlossary</code></td><td>全量 merge 进 Prompt</td></tr>
+        </tbody>
+      </table>
+      <p class="lead">合并后填入 Prompt 的 <code>{glossary}</code>，标注为<strong>最高优先级</strong>。</p>
+
+      <h3>RAG 翻译记忆（enableHistory）</h3>
+      <table>
+        <thead><tr><th>时机</th><th>方法</th><th>行为</th></tr></thead>
+        <tbody>
+          <tr><td>翻译前（每句）</td><td><code>buildRagContext</code></td><td>PGVector 相似检索 TopK=3，阈值 0.5</td></tr>
+          <tr><td>翻译后（每句）</td><td><code>saveMemory</code></td><td>写入「原文 + 译文」对，embedding 1024 维</td></tr>
+          <tr><td>人工完成后（Step 3）</td><td><code>saveTranslationMemoriesAsync</code></td><td>批量写入 final 译文对（非 AI 阶段，供后续任务复用）</td></tr>
+        </tbody>
+      </table>
+      <p class="lead">Metadata 五维过滤：<code>customerId + role + style + sourceLang + targetLang</code>，保证记忆隔离与可复用。</p>
+    </section>
+
+    <section id="data">
+      <span class="badge b-tech">数据层</span>
+      <h2>§6 句子字段变化</h2>
+      <p class="lead">AI 阶段只操作 <code>translation_sentence</code>，按 <code>orderNo</code> 全局排序对齐审校结果。</p>
+
+      <table>
+        <thead><tr><th>阶段</th><th>写入字段</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>初翻</td><td><code>translatedText</code></td><td>TranslationAgent 输出</td></tr>
+          <tr><td>审校</td><td><code>reviewScore</code>, <code>reviewAdvice</code>, <code>reviewFlag</code></td><td>ReviewAgent 结构化结果</td></tr>
+          <tr><td>重翻</td><td><code>translatedText</code>（覆盖）</td><td>带 advice 再次调用 TranslationAgent</td></tr>
+          <tr><td>风格统一 / 收尾</td><td><code>reviewedText</code></td><td>Summary 输出或复制 translatedText</td></tr>
+          <tr><td>任务级</td><td><code>reviewScore</code>, <code>reviewRound</code></td><td>每轮审校最低分与轮次</td></tr>
+        </tbody>
+      </table>
+
+      <h3>译文优先级（导出 / 人工审校初值）</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 820 120" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="译文字段流水线">
+          <defs>
+            <filter id="field-shadow" x="-5%" y="-5%" width="110%" height="110%">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#64748b" flood-opacity="0.12"/>
+            </filter>
+            <marker id="field-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#2563eb"/>
+            </marker>
+          </defs>
+
+          <g filter="url(#field-shadow)">
+            <rect x="10" y="35" width="150" height="50" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.2"/>
+            <text x="85" y="58" text-anchor="middle" font-size="11" fill="#1e293b">originalText</text>
+            <text x="85" y="74" text-anchor="middle" font-size="9" fill="#64748b">解析原文</text>
+          </g>
+          <line x1="160" y1="60" x2="185" y2="60" stroke="#2563eb" stroke-width="1.5" marker-end="url(#field-arrow)"/>
+          <g filter="url(#field-shadow)">
+            <rect x="185" y="35" width="150" height="50" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+            <text x="260" y="58" text-anchor="middle" font-size="11" fill="#1e293b">translatedText</text>
+            <text x="260" y="74" text-anchor="middle" font-size="9" fill="#64748b">初翻 / 重翻</text>
+          </g>
+          <line x1="335" y1="60" x2="360" y2="60" stroke="#2563eb" stroke-width="1.5" marker-end="url(#field-arrow)"/>
+          <g filter="url(#field-shadow)">
+            <rect x="360" y="35" width="150" height="50" rx="6" fill="#fffbeb" stroke="#64748b" stroke-width="1.2"/>
+            <text x="435" y="58" text-anchor="middle" font-size="11" fill="#1e293b">reviewedText</text>
+            <text x="435" y="74" text-anchor="middle" font-size="9" fill="#64748b">风格统一</text>
+          </g>
+          <line x1="510" y1="60" x2="535" y2="60" stroke="#2563eb" stroke-width="1.5" marker-end="url(#field-arrow)"/>
+          <g filter="url(#field-shadow)">
+            <rect x="535" y="35" width="130" height="50" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+            <text x="600" y="58" text-anchor="middle" font-size="11" fill="#1e293b">finalText</text>
+            <text x="600" y="74" text-anchor="middle" font-size="9" fill="#64748b">人工写入</text>
+          </g>
+          <line x1="665" y1="60" x2="690" y2="60" stroke="#2563eb" stroke-width="1.5" marker-end="url(#field-arrow)"/>
+          <g filter="url(#field-shadow)">
+            <rect x="690" y="35" width="120" height="50" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+            <text x="750" y="58" text-anchor="middle" font-size="10" fill="#2563eb">resolveFinalText</text>
+            <text x="750" y="74" text-anchor="middle" font-size="9" fill="#64748b">导出</text>
+          </g>
+
+          <text x="410" y="18" text-anchor="middle" font-size="10" fill="#64748b">优先级：final &gt; reviewed &gt; translated</text>
+        </svg>
+        <p class="diagram-caption">originalText → translatedText → reviewedText → finalText → 导出</p>
+      </div>
+    </section>
+
+    <section id="infra">
+      <span class="badge b-tech">基础设施</span>
+      <h2>§7 并发、线程池与容错</h2>
+
+      <table>
+        <thead><tr><th>线程池</th><th>Bean</th><th>用途</th><th>配置</th></tr></thead>
+        <tbody>
+          <tr><td>编排级</td><td><code>taskExecutor</code></td><td>parseAsync / translateAsync / RAG 批量写</td><td>核心 4，最大 8，队列 100</td></tr>
+          <tr><td>句子级</td><td><code>translationExecutor</code></td><td>初翻与审校重翻并发</td><td><code>app.translation.concurrency</code> 默认 8</td></tr>
+        </tbody>
+      </table>
+
+      <h3>容错策略</h3>
+      <table>
+        <thead><tr><th>场景</th><th>行为</th></tr></thead>
+        <tbody>
+          <tr><td>translateAsync 任意未捕获异常</td><td><code>fail(taskId)</code> → FAILED + errorMsg</td></tr>
+          <tr><td>ReviewAgent 单批 JSON 解析失败</td><td>该批 15 句默认 80 分通过，不阻断循环</td></tr>
+          <tr><td>SummaryAgent 单批失败</td><td>该批回退原 translatedText</td></tr>
+          <tr><td>RAG 读写失败</td><td>log.warn，不阻断翻译主流程</td></tr>
+        </tbody>
+      </table>
+
+      <h3>关键源码</h3>
+      <table>
+        <thead><tr><th>模块</th><th>路径</th></tr></thead>
+        <tbody>
+          <tr><td>编排器</td><td><code>service/pipeline/TranslationPipeline.java</code></td></tr>
+          <tr><td>翻译 Agent</td><td><code>agent/TranslationAgent.java</code></td></tr>
+          <tr><td>审校 Agent</td><td><code>agent/ReviewAgent.java</code></td></tr>
+          <tr><td>风格 Agent</td><td><code>agent/SummaryAgent.java</code></td></tr>
+          <tr><td>模型路由</td><td><code>service/ai/ChatModelRouter.java</code></td></tr>
+          <tr><td>线程池</td><td><code>config/AsyncConfig.java</code></td></tr>
+          <tr><td>前端 Step 2</td><td><code>components/workflow/StepTranslate.vue</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    <a class="link" href="translation-workflow.html">← 返回完整工作流</a>
+    &nbsp;·&nbsp; AI Translation Assistant · doc/workflow/
+  </footer>
+</body>
+</html>
