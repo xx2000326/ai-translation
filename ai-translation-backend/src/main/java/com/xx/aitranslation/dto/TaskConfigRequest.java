@@ -44,6 +44,9 @@ public class TaskConfigRequest {
     /** 层级策略：子块字符数 */
     private Integer childSize;
 
+    /** Markdown：最大拆分标题深度 1~6，写入 extra_data.chunk.headingLevel */
+    private Integer chunkHeadingLevel;
+
     /** 是否启用术语库 */
     private Boolean enableGlossary;
 

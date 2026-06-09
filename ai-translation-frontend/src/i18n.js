@@ -45,7 +45,9 @@ const LOCALES = {
     'review.taskCompleted': '任务已完成',
     'chunk.fixedSizeMax': '单块字符数',
     'chunk.sectionMaxSize': '章节块字符上限',
-    'chunk.sectionMaxSize.hint': '按标题拆分后，单章节超过该字符数将切分为 Part1/Part2…'
+    'chunk.sectionMaxSize.hint': '按标题拆分后，单章节超过该字符数将切分为 Part1/Part2…',
+    'chunk.headingLevel': '标题拆分深度',
+    'chunk.headingLevel.hint': '1=仅 #，2=# 与 ##，最大 6'
   },
   en: {
     'translation.progress.title': 'Translation',
@@ -93,7 +95,9 @@ const LOCALES = {
     'review.taskCompleted': 'Task completed',
     'chunk.fixedSizeMax': 'Chunk size',
     'chunk.sectionMaxSize': 'Section max chars',
-    'chunk.sectionMaxSize.hint': 'After title-based split, sections exceeding this limit become Part1/Part2…'
+    'chunk.sectionMaxSize.hint': 'After title-based split, sections exceeding this limit become Part1/Part2…',
+    'chunk.headingLevel': 'Heading split depth',
+    'chunk.headingLevel.hint': '1=# only, 2=# and ##, up to 6'
   }
 }
 

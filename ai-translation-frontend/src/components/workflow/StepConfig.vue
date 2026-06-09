@@ -23,15 +23,19 @@ const STRATEGY_LABELS = {
 }
 const ACCEPT = '.txt,.text,.md,.markdown,.html,.htm,.pdf,.doc,.docx'
 
+function defaultChunkSize(strategy) {
+  const s = strategy || 'AUTO'
+  return ['TITLE', 'MARKDOWN', 'AUTO'].includes(s) ? 200 : 1000
+}
+
 const form = ref({
   requirement: props.task.requirement || '',
   description: props.task.description || '',
   sourceLang: props.task.sourceLang || undefined,
   targetLang: props.task.targetLang || undefined,
   chunkStrategy: props.task.chunkStrategy || 'AUTO',
-  chunkSize: props.task.chunkSize ?? (
-    ['TITLE', 'AUTO'].includes(props.task.chunkStrategy || 'AUTO') ? 200 : 1000
-  ),
+  chunkSize: props.task.chunkSize ?? defaultChunkSize(props.task.chunkStrategy),
+  chunkHeadingLevel: props.task.chunkHeadingLevel ?? 1,
   overlap: props.task.chunkOverlap || 100,
   parentSize: props.task.chunkParentSize || 5000,
   childSize: props.task.chunkChildSize || 1000,
@@ -61,10 +65,29 @@ async function loadStrategies() {
   }
 }
 
-// 单块/章节块字符数：固定长度、标题层级（含自动）生效
+// 上传文件（需在 isMarkdownContext 之前定义）
+const uploadedFileName = ref(props.task.sourceFileName || '')
+const uploading = ref(false)
+
+// 单块/章节块字符数：固定长度、标题/Markdown 层级（含自动）生效
+const isMarkdownContext = computed(() => {
+  const s = form.value.chunkStrategy
+  if (s === 'MARKDOWN') return true
+  if (s === 'AUTO' && uploadedFileName.value) {
+    return /\.(md|markdown)$/i.test(uploadedFileName.value)
+  }
+  return false
+})
+
 const showChunkSize = computed(() =>
-  ['FIXED_SIZE', 'TITLE', 'AUTO'].includes(form.value.chunkStrategy)
+  ['FIXED_SIZE', 'TITLE', 'MARKDOWN', 'AUTO'].includes(form.value.chunkStrategy)
 )
+const showHeadingLevel = computed(() => isMarkdownContext.value)
+
+const headingLevelOptions = [1, 2, 3, 4, 5, 6].map((n) => ({
+  value: n,
+  label: 'H' + n
+}))
 const chunkSizeLabel = computed(() =>
   form.value.chunkStrategy === 'FIXED_SIZE' ? t('chunk.fixedSizeMax') : t('chunk.sectionMaxSize')
 )
@@ -79,10 +102,6 @@ const showOverlap = computed(() =>
 const showHierarchicalParams = computed(
   () => form.value.chunkStrategy === 'AUTO' || form.value.chunkStrategy === 'HIERARCHICAL'
 )
-
-// 上传文件
-const uploadedFileName = ref(props.task.sourceFileName || '')
-const uploading = ref(false)
 
 function beforeUpload(file) {
   doUpload(file)
@@ -169,6 +188,7 @@ async function saveAndParse() {
       targetLang: form.value.targetLang,
       chunkStrategy: form.value.chunkStrategy,
       chunkSize: form.value.chunkSize,
+      chunkHeadingLevel: form.value.chunkHeadingLevel,
       overlap: form.value.overlap,
       parentSize: form.value.parentSize,
       childSize: form.value.childSize,
@@ -241,6 +261,17 @@ onMounted(() => {
                     :addon-before="chunkSizeLabel"
                     style="width: 100%"
                   />
+                </a-col>
+              </a-row>
+              <a-row v-if="showHeadingLevel" :gutter="12" style="margin-top: 10px">
+                <a-col :span="12">
+                  <a-form-item :label="t('chunk.headingLevel')" style="margin-bottom: 0">
+                    <a-select
+                      v-model:value="form.chunkHeadingLevel"
+                      :options="headingLevelOptions"
+                      style="width: 100%"
+                    />
+                  </a-form-item>
                 </a-col>
               </a-row>
               <a-row v-if="showHierarchicalParams || showOverlap" :gutter="12" style="margin-top: 10px">

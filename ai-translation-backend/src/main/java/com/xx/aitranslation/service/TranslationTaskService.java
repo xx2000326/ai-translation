@@ -13,6 +13,7 @@ import com.xx.aitranslation.enums.TaskStepCode;
 import com.xx.aitranslation.mapper.ProjectMapper;
 import com.xx.aitranslation.mapper.TaskGlossaryMapper;
 import com.xx.aitranslation.mapper.TranslationTaskMapper;
+import com.xx.aitranslation.support.TaskExtraDataSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
@@ -37,6 +38,7 @@ public class TranslationTaskService {
     private final TaskStepService taskStepService;
     private final RagService ragService;
     private final DocumentParseService documentParseService;
+    private final TaskExtraDataSupport taskExtraDataSupport;
 
     public TranslationTask getById(Long id) {
         TranslationTask task = translationTaskMapper.selectById(id);
@@ -44,6 +46,7 @@ public class TranslationTaskService {
             throw new BizException("task.not.found");
         }
         task.setSteps(taskStepService.listByTask(id));
+        task.setChunkHeadingLevel(taskExtraDataSupport.resolveHeadingLevel(task.getExtraData()));
         return task;
     }
 
@@ -192,6 +195,11 @@ public class TranslationTaskService {
         }
         if (!ObjectUtils.isEmpty(req.getChildSize())) {
             task.setChunkChildSize(req.getChildSize());
+        }
+        if (req.getChunkHeadingLevel() != null) {
+            task.setExtraData(taskExtraDataSupport.mergeHeadingLevel(
+                    task.getExtraData(),
+                    req.getChunkHeadingLevel()));
         }
         if (!ObjectUtils.isEmpty(req.getTranslateModel())) {
             task.setTranslateModel(req.getTranslateModel());

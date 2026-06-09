@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS translation_task (
     chunk_overlap INT DEFAULT 100 COMMENT '相邻块重叠字符数',
     chunk_parent_size INT DEFAULT 5000 COMMENT '层级策略父块字符数',
     chunk_child_size INT DEFAULT 1000 COMMENT '层级策略子块字符数',
+    extra_data JSON COMMENT '任务扩展配置（策略参数等）',
     enable_glossary TINYINT(1) DEFAULT 0 COMMENT '是否启用术语库',
     enable_history TINYINT(1) DEFAULT 0 COMMENT '是否启用历史/RAG 记忆',
     translate_model VARCHAR(50) COMMENT '翻译模型 code',

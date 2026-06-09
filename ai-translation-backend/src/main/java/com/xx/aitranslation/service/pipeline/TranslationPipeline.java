@@ -28,6 +28,7 @@ import com.xx.aitranslation.service.chunk.strategy.TitleChunkStrategy;
 import com.xx.aitranslation.service.chunk.support.TextSplitSupport;
 import com.xx.aitranslation.service.parse.ParsedDocument;
 import com.xx.aitranslation.service.storage.FileStorageService;
+import com.xx.aitranslation.support.TaskExtraDataSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -73,6 +74,7 @@ public class TranslationPipeline {
     private final RagService ragService;
     private final SentenceTranslationQueue sentenceTranslationQueue;
     private final TextSplitSupport textSplitSupport;
+    private final TaskExtraDataSupport taskExtraDataSupport;
 
     /**
      * 异步解析：下载源文件 → 文档拆分引擎拆分 → 映射为翻译单元落库 → 状态置 PARSED。
@@ -106,11 +108,13 @@ public class TranslationPipeline {
     private ChunkConfig buildChunkConfig(TranslationTask task) {
         ChunkStrategyType strategyType = ChunkStrategyType.parse(task.getChunkStrategy());
         ChunkConfig.ChunkConfigBuilder builder = ChunkConfig.builder()
-                .strategy(strategyType);
+                .strategy(strategyType)
+                .headingSplitLevel(taskExtraDataSupport.resolveHeadingLevel(task.getExtraData()));
         if (!ObjectUtils.isEmpty(task.getChunkSize())) {
             builder.chunkSize(task.getChunkSize());
-        } else if (strategyType == ChunkStrategyType.TITLE || strategyType == null) {
-            // AUTO 在 parse 后为 null；Word 等路径常命中 TITLE，默认章节块上限 200
+        } else if (strategyType == ChunkStrategyType.TITLE
+                || strategyType == ChunkStrategyType.MARKDOWN
+                || strategyType == null) {
             builder.chunkSize(TitleChunkStrategy.DEFAULT_SECTION_MAX_SIZE);
         }
         if (!ObjectUtils.isEmpty(task.getChunkOverlap())) {

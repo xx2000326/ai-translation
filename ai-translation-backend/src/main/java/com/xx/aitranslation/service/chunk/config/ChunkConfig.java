@@ -40,4 +40,8 @@ public class ChunkConfig {
      */
     @Builder.Default
     private int hierarchicalThreshold = 50000;
+
+    /** Markdown：最大拆分标题深度 1～6。 */
+    @Builder.Default
+    private int headingSplitLevel = 1;
 }

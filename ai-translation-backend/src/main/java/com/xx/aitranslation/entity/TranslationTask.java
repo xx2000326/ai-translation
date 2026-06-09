@@ -65,6 +65,13 @@ public class TranslationTask {
     /** 层级策略：子块字符数 */
     private Integer chunkChildSize;
 
+    /** 扩展配置 JSON（chunk.headingLevel 等） */
+    private String extraData;
+
+    /** Markdown 标题拆分深度（非表字段，详情接口填充） */
+    @TableField(exist = false)
+    private Integer chunkHeadingLevel;
+
     /** 是否启用术语库 */
     private Boolean enableGlossary;
 
