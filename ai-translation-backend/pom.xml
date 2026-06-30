@@ -54,6 +54,12 @@
             <artifactId>spring-ai-deepseek</artifactId>
         </dependency>
 
+        <!-- Spring AI Alibaba：Graph 多智能体编排框架（节点式工作流） -->
+        <dependency>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-graph-core</artifactId>
+        </dependency>
+
         <!-- MinIO 对象存储（文件翻译源文件存储，本地兜底见 app.storage.type） -->
         <dependency>
             <groupId>io.minio</groupId>
