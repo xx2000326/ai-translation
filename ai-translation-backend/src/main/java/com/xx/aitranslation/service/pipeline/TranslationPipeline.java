@@ -41,6 +41,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import com.alibaba.cloud.ai.graph.CompiledGraph;
+import com.alibaba.cloud.ai.graph.KeyStrategyFactory;
+import com.alibaba.cloud.ai.graph.OverAllState;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
 
 /**
  * 翻译流水线编排器（V1 planner）：按状态机驱动 解析 → 并发翻译 → AI 审校循环 → 全文风格统一 → 人工审校。
@@ -75,6 +79,8 @@ public class TranslationPipeline {
     private final SentenceTranslationQueue sentenceTranslationQueue;
     private final TextSplitSupport textSplitSupport;
     private final TaskExtraDataSupport taskExtraDataSupport;
+    private final CompiledGraph translationGraph;
+    private final KeyStrategyFactory translationKeyStrategyFactory;
 
     /**
      * 异步解析：下载源文件 → 文档拆分引擎拆分 → 映射为翻译单元落库 → 状态置 PARSED。
@@ -159,6 +165,61 @@ public class TranslationPipeline {
             log.error("AI 翻译失败, taskId={}", taskId, e);
             translationTaskService.fail(taskId, e.getMessage());
         }
+    }
+
+    /**
+     * Graph 版异步翻译编排：使用 Spring AI Alibaba Graph 节点图执行翻译流程。
+     * <p>
+     * 与 {@link #translateAsync(Long)} 功能等价，内部调用的业务方法完全相同。
+     */
+    @Async("taskExecutor")
+    public void translateWithGraphAsync(Long taskId) {
+        try {
+            TranslationTask task = translationTaskService.getById(taskId);
+            Map<String, Object> inputs = buildGraphInputs(task);
+
+            RunnableConfig config = RunnableConfig.builder()
+                    .threadId("task-" + taskId)
+                    .build();
+
+            translationGraph.invoke(inputs, config);
+        } catch (Exception e) {
+            log.error("Graph 翻译失败, taskId={}", taskId, e);
+            translationTaskService.fail(taskId, e.getMessage());
+        }
+    }
+
+    /**
+     * 从 TranslationTask 构建 Graph 输入状态（与 {@link #buildContext} 对应）。
+     */
+    private Map<String, Object> buildGraphInputs(TranslationTask task) {
+        Project project = task.getProjectId() == null ? null : projectMapper.selectById(task.getProjectId());
+
+        Map<String, Object> inputs = new HashMap<>();
+        inputs.put("taskId", task.getId());
+        inputs.put("customerId", task.getCustomerId());
+        inputs.put("sourceLang", task.getSourceLang());
+        inputs.put("targetLang", task.getTargetLang());
+        inputs.put("translateModel", task.getTranslateModel());
+        inputs.put("reviewModel", task.getReviewModel());
+        inputs.put("requirement", task.getRequirement());
+        inputs.put("enableGlossary", isTrue(task.getEnableGlossary()));
+        inputs.put("enableHistory", isTrue(task.getEnableHistory()));
+        inputs.put("enableReview", isTrue(task.getEnableReview()));
+        inputs.put("enableSummary", isTrue(task.getEnableSummary()));
+
+        String roleCode = project == null ? null : project.getRole();
+        String styleCode = project == null ? null : project.getStyle();
+        TranslationRole role = TranslationRole.fromCode(roleCode);
+        TranslationStyle style = TranslationStyle.fromCode(styleCode);
+        inputs.put("roleDesc", role == null ? null : role.getDescription());
+        inputs.put("styleDesc", style == null ? null : style.getDescription());
+        inputs.put("ragRole", ObjectUtils.isEmpty(roleCode) ? "" : roleCode);
+        inputs.put("ragStyle", ObjectUtils.isEmpty(styleCode) ? "" : styleCode);
+
+        inputs.put("tempGlossary", isTrue(task.getEnableGlossary()) ? buildTempGlossary(task.getId()) : "");
+
+        return inputs;
     }
 
     /**
