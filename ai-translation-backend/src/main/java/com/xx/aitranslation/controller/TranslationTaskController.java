@@ -116,7 +116,7 @@ public class TranslationTaskController {
         translationTaskService.initAgentSteps(id, enableReview, enableSummary);
         TranslationTask task = translationTaskService.transitFromAny(id, TaskStatus.AGENT_PROCESSING,
                 TaskStatus.PARSED, TaskStatus.AGENT_PROCESSING, TaskStatus.MANUAL_REVIEW, TaskStatus.FAILED);
-        translationPipeline.translateAsync(id);
+        translationPipeline.translateWithGraphAsync(id);
         Map<String, String> data = new LinkedHashMap<>();
         data.put("status", task.getStatus());
         return Result.success(data);

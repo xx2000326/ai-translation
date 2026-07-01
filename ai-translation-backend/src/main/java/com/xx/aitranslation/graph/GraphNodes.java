@@ -69,6 +69,7 @@ public class GraphNodes {
      */
     public Map<String, Object> parseNode(OverAllState state) throws Exception {
         Long taskId = state.value("taskId", 0L);
+        log.info("[解析节点] 开始解析文档, taskId={}", taskId);
         try {
             TranslationTask task = translationTaskService.getById(taskId);
             ChunkConfig config = buildChunkConfig(task);
@@ -78,9 +79,10 @@ public class GraphNodes {
             }
             documentParseService.saveParsedDocument(taskId, task, chunkParseAdapter.toParsedDocument(result));
             translationTaskService.completeParseStep(taskId);
+            log.info("[解析节点] 文档解析完成, taskId={}", taskId);
             return Map.of("parseDone", true);
         } catch (Exception e) {
-            log.error("文档解析失败, taskId={}", taskId, e);
+            log.error("[解析节点] 文档解析失败, taskId={}", taskId, e);
             translationTaskService.fail(taskId, e.getMessage());
             return Map.of("parseFailed", true, "parseError", e.getMessage());
         }
@@ -91,9 +93,11 @@ public class GraphNodes {
      */
     public Map<String, Object> translateNode(OverAllState state) throws Exception {
         Long taskId = state.value("taskId", 0L);
+        log.info("[初译节点] 开始翻译, taskId={}", taskId);
         translationTaskService.resetTranslations(taskId);
 
         List<TranslationSentence> sentences = translationTaskService.listSentences(taskId);
+        log.info("[初译节点] 共 {} 个句子待翻译, taskId={}", sentences.size(), taskId);
         Map<Long, String> contextById = buildContextMap(sentences);
 
         sentenceTranslationQueue.executeBatch(
@@ -101,6 +105,7 @@ public class GraphNodes {
                 (sent, advice) -> translateOne(state, sent, advice, contextById),
                 null, TaskStepCode.TRANSLATE);
         translationTaskService.completeTranslateStep(taskId);
+        log.info("[初译节点] 翻译完成, taskId={}", taskId);
         return Map.of("translateDone", true);
     }
 
@@ -112,6 +117,7 @@ public class GraphNodes {
         List<TranslationSentence> segs = translationTaskService.listSentences(taskId);
         int round = state.value("reviewRound", 0) + 1;
         int segTotal = segs.size();
+        log.info("[审校评分节点] 开始第 {} 轮审校, taskId={}, 共 {} 句", round, taskId, segTotal);
         translationTaskService.initReviewScoringProgress(taskId, round, segTotal);
 
         String requirement = state.value("requirement", "");
@@ -147,6 +153,8 @@ public class GraphNodes {
         }
         translationTaskService.saveReviewMeta(taskId, minScore, round);
 
+        log.info("[审校评分节点] 第 {} 轮审校完成, taskId={}, 最低分={}, 标记数={}",
+                round, taskId, minScore, flagged);
         return Map.of("minScore", minScore, "flagCount", flagged, "reviewRound", round,
                 "retranslateDone", false);
     }
@@ -162,6 +170,7 @@ public class GraphNodes {
                 .filter(s -> Boolean.TRUE.equals(s.getReviewFlag()))
                 .collect(Collectors.toList());
 
+        log.info("[重译节点] 开始重译低分句, taskId={}, 标记数={}", taskId, flagged.size());
         translationTaskService.initReviewRetranslateProgress(taskId, flagged.size());
         sentenceTranslationQueue.executeBatch(
                 taskId, flagged,
@@ -169,6 +178,7 @@ public class GraphNodes {
                 null, TaskStepCode.REVIEW_RETRANSLATE, false);
         translationTaskService.completeReviewRetranslateStep(taskId);
 
+        log.info("[重译节点] 重译完成, taskId={}", taskId);
         return Map.of("retranslateDone", true);
     }
 
@@ -177,6 +187,7 @@ public class GraphNodes {
      */
     public Map<String, Object> summaryGuideNode(OverAllState state) throws Exception {
         Long taskId = state.value("taskId", 0L);
+        log.info("[风格指南节点] 开始提取风格指南, taskId={}", taskId);
         List<TranslationSentence> segs = translationTaskService.listSentences(taskId);
 
         boolean enableGlossary = state.value("enableGlossary", false);
@@ -193,6 +204,7 @@ public class GraphNodes {
                 fullGlossary, state.value("translateModel", ""));
         translationTaskService.completeSummaryGuideStep(taskId);
 
+        log.info("[风格指南节点] 风格指南提取完成, taskId={}", taskId);
         return Map.of("styleGuide", styleGuide);
     }
 
@@ -201,9 +213,11 @@ public class GraphNodes {
      */
     public Map<String, Object> summaryUnifyNode(OverAllState state) throws Exception {
         Long taskId = state.value("taskId", 0L);
+        log.info("[风格统一节点] 开始风格统一润色, taskId={}", taskId);
         String styleGuide = state.value("styleGuide", "");
         List<TranslationSentence> segs = translationTaskService.listSentences(taskId);
         int total = segs.size();
+        log.info("[风格统一节点] 共 {} 句待润色, taskId={}", total, taskId);
         translationTaskService.initSummaryProgress(taskId, total);
 
         Map<Integer, String> unified = summaryAgent.unifyWithStyleGuide(
@@ -217,6 +231,7 @@ public class GraphNodes {
             seg.setReviewedText(unified.getOrDefault(seg.getOrderNo(), seg.getTranslatedText()));
             translationTaskService.updateSentence(seg);
         }
+        log.info("[风格统一节点] 风格统一完成, taskId={}", taskId);
         return Map.of("summaryDone", true);
     }
 
@@ -225,6 +240,7 @@ public class GraphNodes {
      */
     public Map<String, Object> finalizeNode(OverAllState state) throws Exception {
         Long taskId = state.value("taskId", 0L);
+        log.info("[收尾节点] 开始收尾落库, taskId={}", taskId);
 
         List<TranslationSentence> segs = translationTaskService.listSentences(taskId);
         for (TranslationSentence seg : segs) {
@@ -234,6 +250,7 @@ public class GraphNodes {
             }
         }
         translationTaskService.transit(taskId, null, TaskStatus.MANUAL_REVIEW);
+        log.info("[收尾节点] 翻译流程完成, taskId={}, 进入人工审校", taskId);
         return Map.of("done", true);
     }
 

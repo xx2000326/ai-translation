@@ -74,8 +74,7 @@ public class TranslationGraphConfig {
                 .addNode("finalize",        node_async(graphNodes::finalizeNode))
                 .addNode("summary_router", node_async(state -> Map.of()))
 
-                .addEdge(START, "parse")
-                .addEdge("parse", "translate")
+                .addEdge(START, "translate")
 
                 .addConditionalEdges("translate",
                         edge_async(state -> state.value("enableReview", false) ? "review_score" : "summary_router"),
