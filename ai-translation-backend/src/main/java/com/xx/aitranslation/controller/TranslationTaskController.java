@@ -8,6 +8,7 @@ import com.xx.aitranslation.dto.SentenceUpdateRequest;
 import com.xx.aitranslation.dto.SentenceView;
 import com.xx.aitranslation.dto.StartTranslateRequest;
 import com.xx.aitranslation.dto.TaskConfigRequest;
+import com.xx.aitranslation.dto.TranslationImageResponse;
 import com.xx.aitranslation.dto.TaskGlossaryRequest;
 import com.xx.aitranslation.entity.TaskGlossary;
 import com.xx.aitranslation.entity.TranslationSentence;
@@ -19,6 +20,7 @@ import com.xx.aitranslation.service.chunk.config.ChunkFileType;
 import com.xx.aitranslation.service.TranslationTaskService;
 import com.xx.aitranslation.service.export.DocumentExporter;
 import com.xx.aitranslation.service.export.DocumentExporterFactory;
+import com.xx.aitranslation.service.image.TranslationImageService;
 import com.xx.aitranslation.service.pipeline.TranslationPipeline;
 import com.xx.aitranslation.service.storage.FileStorageService;
 import jakarta.validation.Valid;
@@ -55,6 +57,7 @@ public class TranslationTaskController {
     private final FileStorageService fileStorageService;
     private final TranslationPipeline translationPipeline;
     private final DocumentExporterFactory documentExporterFactory;
+    private final TranslationImageService translationImageService;
 
     @GetMapping
     public Result<List<TranslationTask>> list(@RequestParam(required = false) Long projectId) {
@@ -131,6 +134,11 @@ public class TranslationTaskController {
     @GetMapping("/{id}/segments")
     public Result<List<SentenceView>> listSegments(@PathVariable Long id) {
         return Result.success(documentParseService.listSentenceViews(id));
+    }
+
+    @GetMapping("/{id}/images")
+    public Result<List<TranslationImageResponse>> listImages(@PathVariable Long id) {
+        return Result.success(translationImageService.listByTaskId(id));
     }
 
     @PutMapping("/{id}/sentences")

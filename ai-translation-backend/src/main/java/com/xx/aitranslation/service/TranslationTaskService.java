@@ -13,6 +13,7 @@ import com.xx.aitranslation.enums.TaskStepCode;
 import com.xx.aitranslation.mapper.ProjectMapper;
 import com.xx.aitranslation.mapper.TaskGlossaryMapper;
 import com.xx.aitranslation.mapper.TranslationTaskMapper;
+import com.xx.aitranslation.service.image.TranslationImageService;
 import com.xx.aitranslation.support.TaskExtraDataSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class TranslationTaskService {
     private final RagService ragService;
     private final DocumentParseService documentParseService;
     private final TaskExtraDataSupport taskExtraDataSupport;
+    private final TranslationImageService translationImageService;
 
     public TranslationTask getById(Long id) {
         TranslationTask task = translationTaskMapper.selectById(id);
@@ -97,6 +99,7 @@ public class TranslationTaskService {
     }
 
     public void clearParseResult(Long taskId) {
+        translationImageService.clearByTaskId(taskId);
         documentParseService.clearParseResult(taskId);
         taskStepService.resetParseStep(taskId);
     }
@@ -162,6 +165,7 @@ public class TranslationTaskService {
         task.setEnableHistory(false);
         task.setEnableReview(false);
         task.setEnableSummary(false);
+        task.setEnableImageTranslation(false);
         task.setStatus(TaskStatus.DRAFT.name());
         translationTaskMapper.insert(task);
         return task;
@@ -218,6 +222,12 @@ public class TranslationTaskService {
         }
         if (!ObjectUtils.isEmpty(req.getEnableSummary())) {
             task.setEnableSummary(req.getEnableSummary());
+        }
+        if (!ObjectUtils.isEmpty(req.getEnableImageTranslation())) {
+            task.setEnableImageTranslation(req.getEnableImageTranslation());
+        }
+        if (!ObjectUtils.isEmpty(req.getImageTranslationModel())) {
+            task.setImageTranslationModel(req.getImageTranslationModel());
         }
         translationTaskMapper.updateById(task);
         return task;

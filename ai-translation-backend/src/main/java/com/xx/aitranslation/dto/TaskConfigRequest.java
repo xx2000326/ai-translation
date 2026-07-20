@@ -64,4 +64,10 @@ public class TaskConfigRequest {
 
     /** 是否启用全文风格统一（汇总 Agent） */
     private Boolean enableSummary;
+
+    /** 是否翻译 PDF 图片 */
+    private Boolean enableImageTranslation;
+
+    /** PDF 图片翻译模型 code */
+    private String imageTranslationModel;
 }

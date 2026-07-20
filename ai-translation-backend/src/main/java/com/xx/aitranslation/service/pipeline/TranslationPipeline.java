@@ -3,6 +3,8 @@ package com.xx.aitranslation.service.pipeline;
 import com.xx.aitranslation.common.BizException;
 import com.xx.aitranslation.entity.Project;
 import com.xx.aitranslation.entity.TaskGlossary;
+import com.xx.aitranslation.entity.TranslationDocument;
+import com.xx.aitranslation.entity.TranslationSentence;
 import com.xx.aitranslation.entity.TranslationTask;
 import com.xx.aitranslation.enums.TaskStatus;
 import com.xx.aitranslation.enums.TranslationRole;
@@ -13,10 +15,15 @@ import com.xx.aitranslation.service.TranslationTaskService;
 import com.xx.aitranslation.service.chunk.ChunkEngine;
 import com.xx.aitranslation.service.chunk.ChunkParseAdapter;
 import com.xx.aitranslation.service.chunk.config.ChunkConfig;
+import com.xx.aitranslation.service.chunk.config.ChunkFileType;
 import com.xx.aitranslation.service.chunk.config.ChunkStrategyType;
 import com.xx.aitranslation.service.chunk.model.ChunkResult;
 import com.xx.aitranslation.service.chunk.strategy.TitleChunkStrategy;
 import com.xx.aitranslation.service.parse.ParsedDocument;
+import com.xx.aitranslation.service.python.PythonPdfParseClient;
+import com.xx.aitranslation.service.python.PythonPdfParseException;
+import com.xx.aitranslation.service.python.dto.PythonPdfParsedText;
+import com.xx.aitranslation.service.image.TranslationImageService;
 import com.xx.aitranslation.service.storage.FileStorageService;
 import com.xx.aitranslation.support.TaskExtraDataSupport;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
@@ -53,6 +60,8 @@ public class TranslationPipeline {
     private final ChunkParseAdapter chunkParseAdapter;
     private final ProjectMapper projectMapper;
     private final TaskExtraDataSupport taskExtraDataSupport;
+    private final PythonPdfParseClient pythonPdfParseClient;
+    private final TranslationImageService translationImageService;
     private final CompiledGraph translationGraph;
     private final KeyStrategyFactory translationKeyStrategyFactory;
 
@@ -65,12 +74,35 @@ public class TranslationPipeline {
         try {
             TranslationTask task = translationTaskService.getById(taskId);
             ChunkConfig config = buildChunkConfig(task);
-            ChunkResult result;
+            ChunkResult result = null;
+            PythonPdfParsedText pythonParsedText = null;
+            byte[] sourceBytes;
             try (InputStream in = fileStorageService.download(task.getSourceFileKey())) {
-                result = chunkEngine.chunk(in, task.getSourceFileName(), config);
+                sourceBytes = in.readAllBytes();
+            }
+            if (shouldUsePythonPdfParser(task)) {
+                pythonParsedText = tryPythonPdfParse(taskId, task, sourceBytes);
+                if (pythonParsedText != null) {
+                    result = chunkEngine.chunkParsedText(
+                            pythonParsedText.getText(),
+                            task.getSourceFileName(),
+                            ChunkFileType.PDF,
+                            config);
+                }
+            }
+            if (result == null) {
+                result = chunkEngine.chunk(new java.io.ByteArrayInputStream(sourceBytes), task.getSourceFileName(), config);
             }
             ParsedDocument parsed = chunkParseAdapter.toParsedDocument(result);
-            documentParseService.saveParsedDocument(taskId, task, parsed);
+            TranslationDocument document = documentParseService.saveParsedDocument(taskId, task, parsed);
+            if (pythonParsedText != null) {
+                translationImageService.savePythonPdfImages(
+                        taskId,
+                        document.getId(),
+                        task,
+                        pythonParsedText.getTaskId(),
+                        pythonParsedText.getBlocks());
+            }
             translationTaskService.completeParseStep(taskId);
             translationTaskService.transit(taskId, TaskStatus.PARSING, TaskStatus.PARSED);
         } catch (BizException e) {
@@ -79,6 +111,29 @@ public class TranslationPipeline {
         } catch (Exception e) {
             log.error("文档解析失败, taskId={}", taskId, e);
             translationTaskService.fail(taskId, e.getMessage());
+        }
+    }
+
+    private boolean shouldUsePythonPdfParser(TranslationTask task) {
+        return pythonPdfParseClient.enabled()
+                && !ObjectUtils.isEmpty(task.getSourceFileType())
+                && ChunkFileType.PDF.name().equalsIgnoreCase(task.getSourceFileType());
+    }
+
+    private PythonPdfParsedText tryPythonPdfParse(Long taskId, TranslationTask task, byte[] sourceBytes) {
+        try {
+            PythonPdfParsedText parsedText = pythonPdfParseClient.parseWithRetry(sourceBytes, task.getSourceFileName());
+            log.info("Python PDF 解析结果进入 Java 拆分流程, taskId={}, pythonTaskId={}, pageCount={}, warnings={}",
+                    taskId, parsedText.getTaskId(), parsedText.getPageCount(), parsedText.getWarnings());
+            return parsedText;
+        } catch (PythonPdfParseException e) {
+            log.error("Python PDF 解析 3 次失败，切换 Java 原生解析, taskId={}, fileName={}",
+                    taskId, task.getSourceFileName(), e);
+            return null;
+        } catch (Exception e) {
+            log.error("Python PDF 解析异常，切换 Java 原生解析, taskId={}, fileName={}",
+                    taskId, task.getSourceFileName(), e);
+            return null;
         }
     }
 

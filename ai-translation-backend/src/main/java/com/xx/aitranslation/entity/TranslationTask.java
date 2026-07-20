@@ -90,6 +90,12 @@ public class TranslationTask {
     /** 是否启用全文风格统一（汇总 Agent，V1 模块七） */
     private Boolean enableSummary;
 
+    /** 是否翻译 PDF 图片 */
+    private Boolean enableImageTranslation;
+
+    /** PDF 图片翻译模型 code */
+    private String imageTranslationModel;
+
     /** 审校综合评分 */
     private Integer reviewScore;
 

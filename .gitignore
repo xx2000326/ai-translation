@@ -43,6 +43,7 @@ application-prod.yml
 
 ### VS Code ###
 .vscode/
+.vs/
 
 ### NetBeans ###
 /nbproject/private/
@@ -60,11 +61,13 @@ build/
 node_modules/
 dist/
 .npm
+.vite/
 .pnpm-debug.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.local
+coverage/
 
 # ===========================
 # OS
@@ -78,6 +81,19 @@ Desktop.ini
 # Upload / Temp files
 # ===========================
 upload-files/
+ai-translation-py/.venv/
+ai-translation-py/data/
+ai-translation-py/output/
+ai-translation-py/.pytest_cache/
+ai-translation-py/.ruff_cache/
+ai-translation-py/.mypy_cache/
+ai-translation-py/.coverage
+ai-translation-py/htmlcov/
+ai-translation-py/**/__pycache__/
+**/*.pyc
+*.log
+logs/
+ai-translation-backend/logs/
 *.tmp
 *.bak
-docs
+/docs/

@@ -60,6 +60,7 @@ export const api = {
   parseTask: (id) => http.post(`/tasks/${id}/parse`),
   getParagraphs: (id) => http.get(`/tasks/${id}/paragraphs`),
   getSegments: (id) => http.get(`/tasks/${id}/segments`),
+  getTaskImages: (id) => http.get(`/tasks/${id}/images`),
   updateSentences: (id, list) => http.put(`/tasks/${id}/sentences`, list),
   startTranslate: (id, payload) => http.post(`/tasks/${id}/translate`, payload),
   saveSentenceFinal: (taskId, sentenceId, payload) => http.put(`/tasks/${taskId}/sentences/${sentenceId}/final`, payload),

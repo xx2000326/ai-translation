@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-translation-py"
+version = "0.1.0"
+description = "Python-side services for AI Translation, starting with PDF parsing."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "pydantic>=2.8,<3.0",
+  "pydantic-settings>=2.4,<3.0",
+  "python-multipart>=0.0.9,<1.0",
+  "unstructured[pdf]>=0.15,<1.0",
+  "mineru[all]>=3.4,<4.0",
+  "pypdf>=5.0,<7.0",
+  "PyMuPDF>=1.24,<2.0",
+]
+
+[project.scripts]
+ai-translation-py = "ai_translation_py.main:main"
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -84,6 +84,24 @@ app:
       secret-key: ${MINIO_SECRET_KEY:minioadmin}
       bucket: ${MINIO_BUCKET:ai-translation}
 
+  python:
+    pdf-parse:
+      enabled: ${PYTHON_PDF_PARSE_ENABLED:true}
+      base-url: ${PYTHON_PDF_PARSE_BASE_URL:http://127.0.0.1:8010}
+      connect-timeout: ${PYTHON_PDF_PARSE_CONNECT_TIMEOUT:5s}
+      read-timeout: ${PYTHON_PDF_PARSE_READ_TIMEOUT:30s}
+      max-attempts: ${PYTHON_PDF_PARSE_MAX_ATTEMPTS:3}
+      poll-timeout: ${PYTHON_PDF_PARSE_POLL_TIMEOUT:5m}
+      poll-interval: ${PYTHON_PDF_PARSE_POLL_INTERVAL:2s}
+
+  ai:
+    image-translation:
+      base-url: ${IMAGE_TRANSLATION_BASE_URL:http://127.0.0.1:8000}
+      api-key: ${IMAGE_TRANSLATION_API_KEY:}
+      model: ${IMAGE_TRANSLATION_MODEL:image-translation-model}
+      endpoint-path: ${IMAGE_TRANSLATION_ENDPOINT_PATH:/v1/images/edits}
+      timeout: ${IMAGE_TRANSLATION_TIMEOUT:2m}
+
 # ===================== 文档拆分引擎（独立模块：service/chunk） =====================
 # 见 doc/V1/chunk-method.md。strategy 为空时由工厂按文件类型自动选择。
 document:

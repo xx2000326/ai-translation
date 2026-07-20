@@ -88,8 +88,19 @@ public class ChunkEngine {
 
         // 1. 读取
         ParsedDocument parsed = readerFactory.get(fileType).read(resource, fileName);
+        return chunkParsedText(parsed.getContent(), fileName, fileType, effectiveConfig);
+    }
+
+    /**
+     * 拆分已由外部解析器抽取好的纯文本。
+     * <p>
+     * Python PDF 解析成功后会走这里：跳过 Java PDFBox 读取器，但继续复用现有清洗、
+     * 策略选择和分块逻辑，保证后续落库/翻译流程不分叉。
+     */
+    public ChunkResult chunkParsedText(String content, String fileName, ChunkFileType fileType, ChunkConfig config) {
+        ChunkConfig effectiveConfig = chunkProperties.resolve(config);
         // 2. 清洗
-        String cleaned = cleanerChain.clean(parsed.getContent());
+        String cleaned = cleanerChain.clean(content);
         if (ObjectUtils.isEmpty(cleaned)) {
             throw new BizException("chunk.content.empty");
         }

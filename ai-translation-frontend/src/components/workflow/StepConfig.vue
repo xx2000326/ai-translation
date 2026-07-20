@@ -44,7 +44,9 @@ const form = ref({
   translateModel: props.task.translateModel || undefined,
   enableReview: !!props.task.enableReview,
   reviewModel: props.task.reviewModel || 'deepseek-v4-flash',
-  enableSummary: !!props.task.enableSummary
+  enableSummary: !!props.task.enableSummary,
+  enableImageTranslation: !!props.task.enableImageTranslation,
+  imageTranslationModel: props.task.imageTranslationModel || ''
 })
 
 const langOptions = computed(() => store.languages.map((l) => ({ value: l.code, label: l.label })))
@@ -197,7 +199,9 @@ async function saveAndParse() {
       translateModel: form.value.translateModel,
       enableReview: form.value.enableReview,
       reviewModel: form.value.reviewModel,
-      enableSummary: form.value.enableSummary
+      enableSummary: form.value.enableSummary,
+      enableImageTranslation: form.value.enableImageTranslation,
+      imageTranslationModel: form.value.imageTranslationModel
     })
     if (!uploadedFileName.value) {
       message.success('配置已保存，请上传待翻译文件后点击解析')
@@ -345,6 +349,26 @@ onMounted(() => {
                     </a-tooltip>
                   </template>
                   <a-switch v-model:checked="form.enableSummary" />
+                </a-form-item>
+              </a-col>
+            </a-row>
+            <a-row :gutter="16">
+              <a-col :span="8">
+                <a-form-item>
+                  <template #label>
+                    <a-tooltip title="仅对 PDF 中解析出的图片生效；开启后会调用图片翻译模型并保存译后图片">
+                      翻译 PDF 图片
+                    </a-tooltip>
+                  </template>
+                  <a-switch v-model:checked="form.enableImageTranslation" />
+                </a-form-item>
+              </a-col>
+              <a-col v-if="form.enableImageTranslation" :span="16">
+                <a-form-item label="图片翻译模型">
+                  <a-input
+                    v-model:value="form.imageTranslationModel"
+                    placeholder="例如：qwen-vl-plus / 你的多模态图片模型 code"
+                  />
                 </a-form-item>
               </a-col>
             </a-row>
